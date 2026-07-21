@@ -2,9 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/session.dart';
+import 'package:manna_field_sales/core/utils.dart';
+import 'package:manna_field_sales/models/attendance.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
 
+/// Punch in and out for the logged-in rep.
+///
+/// There is no rep picker: the server derives the Sales Person from the
+/// session, so a rep can only ever punch for themselves. Every rule — the
+/// 05:00 open, the 21:30 cutoff, latest-punch-out-wins — is decided on the
+/// server against the server clock. The window checks here only decide whether
+/// a button looks tappable.
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
   @override
@@ -12,46 +22,44 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
-  late Future<List<Map<String, dynamic>>> _reps;
-  String? _rep;
-  Map<String, dynamic>? today;
-  bool _loadingToday = false;
+  AttendanceStatus? _status;
+  bool _loading = true;
   bool _busy = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _reps = Api.getSalesPersons();
+    _load();
   }
 
   void _snack(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
-  Future<void> _loadToday() async {
-    if (_rep == null) return;
+  Future<void> _load() async {
     setState(() {
-      _loadingToday = true;
-      today = null;
+      _loading = true;
+      _error = null;
     });
     try {
-      final list = await Api.getTodayAttendance(_rep!);
-      setState(() => today = list.isNotEmpty ? list.first : null);
+      final s = await Api.getAttendanceStatus();
+      if (mounted) setState(() => _status = s);
     } catch (e) {
-      _snack('Failed to load: $e');
+      if (mounted) setState(() => _error = '$e');
     } finally {
-      if (mounted) setState(() => _loadingToday = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _punchIn() async {
-    if (_rep == null) return _snack('Pick a sales person.');
+  Future<void> _punch(Future<PunchResult> Function() send) async {
     setState(() => _busy = true);
     _snack('Getting GPS…');
     try {
-      final pos = await getCurrentLocation();
-      await Api.punchIn(salesPerson: _rep!, lat: pos.latitude, lng: pos.longitude);
-      _snack('Punched in ✓');
-      await _loadToday();
+      final r = await send();
+      // A rejection is surfaced as plainly as an acceptance — the rep must
+      // never be left believing a blocked punch succeeded.
+      _snack(r.outcome.isAccepted ? '${r.message} ✓' : r.message);
+      await _load();
     } catch (e) {
       _snack('Failed: $e');
     } finally {
@@ -59,121 +67,108 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  Future<void> _punchOut() async {
-    if (today == null) return;
-    setState(() => _busy = true);
-    _snack('Getting GPS…');
-    try {
-      final pos = await getCurrentLocation();
-      final hours = await Api.punchOut(
-        name: today!['name'],
-        punchInTime: (today!['punch_in_time'] ?? '').toString(),
-        lat: pos.latitude,
-        lng: pos.longitude,
-      );
-      _snack('Punched out ✓  ${hours.toStringAsFixed(2)} h');
-      await _loadToday();
-    } catch (e) {
-      _snack('Failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  Future<void> _punchIn() => _punch(() async {
+        final pos = await getCurrentLocation();
+        return Api.punchIn(lat: pos.latitude, lng: pos.longitude);
+      });
 
-  String _fmtTime(dynamic dt) {
-    if (dt == null) return '—';
-    final s = dt.toString();
-    return s.length >= 16 ? s.substring(11, 16) : s;
-  }
+  Future<void> _punchOut() => _punch(() async {
+        final pos = await getCurrentLocation();
+        return Api.punchOut(lat: pos.latitude, lng: pos.longitude);
+      });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Attendance')),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _reps,
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
-          final reps = snap.data ?? [];
-          return Padding(
-            padding: const EdgeInsets.all(20),
-            child: ListView(children: [
-              DropdownButtonFormField<String>(
-                value: _rep,
-                decoration: const InputDecoration(
-                    labelText: 'Sales Person', border: OutlineInputBorder()),
-                items: reps
-                    .map((r) => DropdownMenuItem(
-                    value: r['name'] as String,
-                    child: Text(r['sales_person_name'] ?? r['name'])))
-                    .toList(),
-                onChanged: (v) {
-                  setState(() => _rep = v);
-                  _loadToday();
-                },
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            if (Session.I.salesPersonLabel != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(Session.I.salesPersonLabel!,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
               ),
-              const SizedBox(height: 24),
-              if (_rep == null)
-                const Padding(
+            if (_loading)
+              const Padding(
                   padding: EdgeInsets.only(top: 40),
-                  child: Center(
-                      child: Text(
-                          'Select a sales person to mark attendance.')),
-                )
-              else if (_loadingToday)
-                const Padding(
-                    padding: EdgeInsets.only(top: 40),
-                    child: Center(child: CircularProgressIndicator()))
-              else
-                _statusCard(),
-            ]),
-          );
-        },
+                  child: Center(child: CircularProgressIndicator()))
+            else if (_error != null)
+              Center(child: Text('Error: $_error'))
+            else
+              ..._body(_status!),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _statusCard() {
-    final rec = today;
-    if (rec == null) {
-      return Column(children: [
-        const Card(
-          child: ListTile(
-            leading: Icon(Icons.schedule, color: Colors.orange),
-            title: Text('Not punched in today'),
-            subtitle: Text('Tap below to start your day.'),
-          ),
+  List<Widget> _body(AttendanceStatus s) => [
+        ..._priorDayWarnings(s),
+        _statusCard(s),
+      ];
+
+  /// Days that still need regularizing. The server lists only days before
+  /// today, so nothing shows up on the night a punch-out was missed.
+  List<Widget> _priorDayWarnings(AttendanceStatus s) {
+    return s.pendingRegularizations
+        .map((p) => Card(
+              color: const Color(0xFFFFF7ED),
+              child: ListTile(
+                leading:
+                    const Icon(Icons.warning_amber, color: Color(0xFFF59E0B)),
+                title: Text('${p.attendanceDate} needs regularizing'),
+                subtitle: const Text('Punched in but never punched out.'),
+              ),
+            ))
+        .toList();
+  }
+
+  Widget _statusCard(AttendanceStatus s) {
+    if (s.isPunchedOut) {
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.check_circle, color: Color(0xFFF46A21)),
+          title: Text('Day complete · ${s.workingHours.toStringAsFixed(2)} h'),
+          subtitle: Text('In ${hhmm(s.punchInTime)}  ·  '
+              'Out ${hhmm(s.punchOutTime)}'),
         ),
-        const SizedBox(height: 20),
-        _bigButton('Punch In', Icons.login, _busy ? null : _punchIn),
-      ]);
+      );
     }
-    if (rec['status'] == 'Punched In') {
+
+    if (s.isPunchedIn) {
+      final shut = s.punchOutBlockedReason;
       return Column(children: [
         Card(
           child: ListTile(
             leading: const Icon(Icons.login, color: Colors.green),
-            title: Text('Punched in at ${_fmtTime(rec['punch_in_time'])}'),
-            subtitle: const Text('You are currently on duty.'),
+            title: Text('Punched in at ${hhmm(s.punchInTime)}'),
+            subtitle: Text(shut ?? 'You are currently on duty.'),
           ),
         ),
         const SizedBox(height: 20),
-        _bigButton('Punch Out', Icons.logout, _busy ? null : _punchOut),
+        _bigButton('Punch Out', Icons.logout,
+            (_busy || !s.punchOutEnabled) ? null : _punchOut),
       ]);
     }
-    final wh =
-    (rec['working_hours'] is num) ? (rec['working_hours'] as num).toDouble() : 0.0;
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.check_circle, color: Color(0xFFF46A21)),
-        title: Text('Day complete · ${wh.toStringAsFixed(2)} h'),
-        subtitle: Text(
-            'In ${_fmtTime(rec['punch_in_time'])}  ·  Out ${_fmtTime(rec['punch_out_time'])}'),
+
+    final shut = s.punchInBlockedReason;
+    return Column(children: [
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.schedule, color: Colors.orange),
+          title: const Text('Not punched in today'),
+          subtitle: Text(shut ?? 'Tap below to start your day.'),
+        ),
       ),
-    );
+      const SizedBox(height: 20),
+      _bigButton('Punch In', Icons.login,
+          (_busy || !s.punchInEnabled) ? null : _punchIn),
+    ]);
   }
 
   Widget _bigButton(String label, IconData icon, VoidCallback? onTap) {
@@ -181,15 +176,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       onPressed: onTap,
       icon: _busy
           ? const SizedBox(
-          height: 18,
-          width: 18,
-          child: CircularProgressIndicator(
-              strokeWidth: 2, color: Colors.white))
+              height: 18,
+              width: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: Colors.white))
           : Icon(icon),
-      label: Padding(
-          padding: const EdgeInsets.all(12), child: Text(label)),
+      label: Padding(padding: const EdgeInsets.all(12), child: Text(label)),
     );
   }
 }
-
-// -------------------- EXPENSES --------------------
