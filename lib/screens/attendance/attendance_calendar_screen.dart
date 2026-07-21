@@ -3,7 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/session.dart';
+import 'package:manna_field_sales/screens/leave/apply_leave_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+
+/// The day the app went live. Nobody was punching in before this, so days
+/// earlier than it are never marked absent.
+final DateTime kGoLiveDate = DateTime(2026, 7, 20);
 
 class AttendanceCalendarScreen extends StatefulWidget {
   final String? rep; // defaults to logged-in person
@@ -88,6 +93,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     final log = _logs[_key(day)];
     if (log == null) {
       if (d0.isAtSameMomentAs(t0)) return null; // today, not punched yet
+      if (d0.isBefore(kGoLiveDate)) return null; // before the app existed
       return Colors.red; // absent
     }
     final pin = log['punch_in_time'];
@@ -300,9 +306,24 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
               icon: const Icon(Icons.edit_calendar),
               label: const Text('Request Regularization'),
             ),
+          if (isFuture && leave == null && widget.rep == null)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _applyLeave(day);
+              },
+              icon: const Icon(Icons.beach_access),
+              label: const Text('Apply Leave'),
+            ),
         ]),
       ),
     );
+  }
+
+  Future<void> _applyLeave(DateTime day) async {
+    final applied = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => ApplyLeaveScreen(initialDate: day)));
+    if (applied == true) _load();
   }
 
   Future<void> _regularize(DateTime day, Map<String, dynamic>? log) async {

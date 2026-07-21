@@ -6,7 +6,8 @@ import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 
 class ApplyLeaveScreen extends StatefulWidget {
-  const ApplyLeaveScreen({super.key});
+  final DateTime? initialDate; // pre-filled when opened from the calendar
+  const ApplyLeaveScreen({super.key, this.initialDate});
   @override
   State<ApplyLeaveScreen> createState() => _ApplyLeaveScreenState();
 }
@@ -22,6 +23,8 @@ class _ApplyLeaveScreenState extends State<ApplyLeaveScreen> {
   @override
   void initState() {
     super.initState();
+    final d = widget.initialDate;
+    if (d != null) _date = DateTime(d.year, d.month, d.day);
     _loadBalance();
   }
 
