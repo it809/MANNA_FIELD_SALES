@@ -12,6 +12,20 @@ import 'package:manna_field_sales/screens/map/day_map_screen.dart';
 /// only [Api] ever needs it.
 String _res(String doctype) => '/api/resource/${Uri.encodeComponent(doctype)}';
 
+/// Outcome of a silent authentication attempt.
+enum AuthState {
+  /// Authenticated — carry on.
+  ok,
+
+  /// The server rejected the credentials (password changed, user disabled,
+  /// no Sales Person link). The only outcome that justifies the login form.
+  rejected,
+
+  /// The server could not be reached. The credentials may well be fine, so
+  /// this is a reason to wait and retry — never to sign the rep out.
+  unreachable,
+}
+
 class Api {
   static Future<bool> testAuth() async {
     final r = await Session.I.dio.get('/api/method/frappe.auth.get_logged_user');
@@ -36,11 +50,18 @@ class Api {
     await provisionToken(email);
   }
 
-  /// Restore the last session at app start without prompting the rep.
-  /// Returns true if we ended up authenticated.
-  static Future<bool> restore() async {
+  /// True when we hold something we can authenticate with, so the rep should
+  /// not be asked to type anything. False only before the first login and
+  /// after an explicit logout.
+  static Future<bool> get canResume async {
     final c = await AuthStore.load();
-    if (c.email.isEmpty) return false;
+    return c.hasToken || c.canReauth;
+  }
+
+  /// Restore the last session at app start without prompting the rep.
+  static Future<AuthState> restore() async {
+    final c = await AuthStore.load();
+    if (!c.hasToken && !c.canReauth) return AuthState.rejected;
     if (c.baseUrl.isNotEmpty) Session.I.baseUrl = c.baseUrl;
     Session.I.email = c.email;
     Session.I.sid = c.sid;
@@ -48,11 +69,16 @@ class Api {
     Session.I.apiSecret = c.apiSecret;
     Session.I.init();
     attachAutoReauth();
-    if (!Session.I.hasToken && c.sid.isNotEmpty) await fetchCsrf();
-    // A stale sid is repaired by the interceptor mid-flight, so this usually
-    // succeeds on the first try even after days of idle.
-    if (await testAuth()) return true;
-    return c.canReauth && await _reauthenticate();
+    try {
+      if (!Session.I.hasToken && c.sid.isNotEmpty) await fetchCsrf();
+      // A stale sid is repaired by the interceptor mid-flight, so this usually
+      // succeeds on the first try even after days of idle.
+      if (await testAuth()) return AuthState.ok;
+    } on DioException {
+      return AuthState.unreachable;
+    }
+    if (!c.canReauth) return AuthState.rejected;
+    return _authenticate(c.email, c.password);
   }
 
   /// Lets the Dio interceptor recover from an expired credential on its own.
@@ -60,17 +86,25 @@ class Api {
     Session.I.reauthenticate = _reauthenticate;
   }
 
+  /// Password login that reports *why* it failed, so callers can tell a flat
+  /// network apart from a credential the server actually refused.
+  static Future<AuthState> _authenticate(String email, String password) async {
+    try {
+      await _passwordLogin(email, password);
+      return AuthState.ok;
+    } on DioException {
+      return AuthState.unreachable;
+    } catch (_) {
+      return AuthState.rejected;
+    }
+  }
+
   /// Silent re-authentication. Never shows UI, never throws.
   static Future<bool> _reauthenticate() async {
     final email = Session.I.email;
     final password = await AuthStore.password();
     if (email.isEmpty || password.isEmpty) return false;
-    try {
-      await _passwordLogin(email, password);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return await _authenticate(email, password) == AuthState.ok;
   }
 
   // Log in with email + password. Captures the session cookie (sid) returned
