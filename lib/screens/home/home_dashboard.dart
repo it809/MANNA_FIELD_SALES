@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
@@ -381,9 +380,8 @@ class _HomeDashboardState extends State<HomeDashboard>
   }
 
   Future<void> _logout() async {
+    // Api.logout clears the stored token, cookie and password.
     await Api.logout();
-    final p = await SharedPreferences.getInstance();
-    await p.remove('sid');
     if (mounted) {
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LoginScreen()),

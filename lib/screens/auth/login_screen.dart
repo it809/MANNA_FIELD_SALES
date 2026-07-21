@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:manna_field_sales/core/auth_store.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/home/home_dashboard.dart';
 import 'package:manna_field_sales/services/api.dart';
@@ -30,38 +30,38 @@ class _LoginScreenState extends State<LoginScreen> {
     _loadSaved();
   }
 
+  static bool get _hasRole =>
+      Session.I.salesPerson != null ||
+      Session.I.isManager ||
+      Session.I.isGM ||
+      Session.I.isHR ||
+      Session.I.isProductionManager;
+
+  void _goHome() => Navigator.of(context)
+      .pushReplacement(MaterialPageRoute(builder: (_) => const HomeDashboard()));
+
   Future<void> _loadSaved() async {
-    final p = await SharedPreferences.getInstance();
-    final url = p.getString('baseUrl') ?? Session.I.baseUrl;
-    final email = p.getString('email') ?? '';
-    final sid = p.getString('sid') ?? '';
+    final c = await AuthStore.load();
     setState(() {
-      _url.text = url;
-      _email.text = email;
+      _url.text = c.baseUrl.isEmpty ? Session.I.baseUrl : c.baseUrl;
+      _email.text = c.email;
     });
-    // If we still have a saved session, try to resume without re-login.
-    if (sid.isNotEmpty) {
-      Session.I.baseUrl = url;
-      Session.I.email = email;
-      Session.I.sid = sid;
-      Session.I.init();
-      try {
-        await Api.fetchCsrf();
-        if (await Api.testAuth()) {
-          await Api.resolveMySalesPerson();
-          await Api.resolveManagerContext();
-          if ((Session.I.salesPerson != null ||
-              Session.I.isManager ||
-              Session.I.isGM ||
-              Session.I.isHR ||
-              Session.I.isProductionManager) &&
-              mounted) {
-            Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const HomeDashboard()));
-          }
+    if (c.email.isEmpty) return;
+    // Resume without asking. A stored API token never expires, and a stale
+    // session cookie is renewed silently — so this normally lands straight on
+    // the dashboard however long the app has been closed.
+    setState(() => _busy = true);
+    try {
+      if (await Api.restore()) {
+        await Api.resolveMySalesPerson();
+        await Api.resolveManagerContext();
+        if (_hasRole && mounted) {
+          _goHome();
+          return;
         }
-      } catch (_) {/* fall through to login screen */}
-    }
+      }
+    } catch (_) {/* fall through to the login form */}
+    if (mounted) setState(() => _busy = false);
   }
 
   Future<void> _login() async {
@@ -72,25 +72,15 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       Session.I.baseUrl = _url.text.trim();
       Session.I.init();
-      await Api.sessionLogin(_email.text.trim(), _password.text);
+      Api.attachAutoReauth();
+      await Api.login(_email.text.trim(), _password.text);
       await Api.resolveMySalesPerson();
       await Api.resolveManagerContext();
-      if (Session.I.salesPerson == null &&
-          !Session.I.isManager &&
-          !Session.I.isGM &&
-          !Session.I.isHR &&
-          !Session.I.isProductionManager) {
+      if (!_hasRole) {
         throw Exception(
             'This login is not linked to a Sales Person or team. Contact admin.');
       }
-      final p = await SharedPreferences.getInstance();
-      await p.setString('baseUrl', Session.I.baseUrl);
-      await p.setString('email', Session.I.email);
-      await p.setString('sid', Session.I.sid);
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const HomeDashboard()));
-      }
+      if (mounted) _goHome();
     } catch (e) {
       setState(() => _error = '$e');
     } finally {

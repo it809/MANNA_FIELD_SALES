@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import 'package:manna_field_sales/core/auth_store.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
 import 'package:manna_field_sales/screens/map/day_map_screen.dart';
@@ -14,12 +15,71 @@ String _res(String doctype) => '/api/resource/${Uri.encodeComponent(doctype)}';
 class Api {
   static Future<bool> testAuth() async {
     final r = await Session.I.dio.get('/api/method/frappe.auth.get_logged_user');
-    return r.statusCode == 200 && r.data is Map && r.data['message'] != null;
+    final u = (r.data is Map) ? r.data['message'] : null;
+    return r.statusCode == 200 && u is String && u.isNotEmpty && u != 'Guest';
+  }
+
+  // ---------------------------------------------------------------- auth ---
+  //
+  // Reps used to be logged out whenever Frappe expired the `sid` cookie
+  // (6 hours by default). Auth now prefers an API key/secret pair, which
+  // Frappe never expires, and falls back to a silent password re-login for
+  // accounts that cannot mint one. Either way the login screen only ever
+  // reappears if the credentials are genuinely rejected.
+
+  /// Interactive login. Establishes a session, remembers the credentials, then
+  /// tries to upgrade to a permanent token.
+  static Future<void> login(String email, String password) async {
+    await _passwordLogin(email, password);
+    await AuthStore.saveLogin(
+        baseUrl: Session.I.baseUrl, email: email, password: password);
+    await provisionToken(email);
+  }
+
+  /// Restore the last session at app start without prompting the rep.
+  /// Returns true if we ended up authenticated.
+  static Future<bool> restore() async {
+    final c = await AuthStore.load();
+    if (c.email.isEmpty) return false;
+    if (c.baseUrl.isNotEmpty) Session.I.baseUrl = c.baseUrl;
+    Session.I.email = c.email;
+    Session.I.sid = c.sid;
+    Session.I.apiKey = c.apiKey;
+    Session.I.apiSecret = c.apiSecret;
+    Session.I.init();
+    attachAutoReauth();
+    if (!Session.I.hasToken && c.sid.isNotEmpty) await fetchCsrf();
+    // A stale sid is repaired by the interceptor mid-flight, so this usually
+    // succeeds on the first try even after days of idle.
+    if (await testAuth()) return true;
+    return c.canReauth && await _reauthenticate();
+  }
+
+  /// Lets the Dio interceptor recover from an expired credential on its own.
+  static void attachAutoReauth() {
+    Session.I.reauthenticate = _reauthenticate;
+  }
+
+  /// Silent re-authentication. Never shows UI, never throws.
+  static Future<bool> _reauthenticate() async {
+    final email = Session.I.email;
+    final password = await AuthStore.password();
+    if (email.isEmpty || password.isEmpty) return false;
+    try {
+      await _passwordLogin(email, password);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   // Log in with email + password. Captures the session cookie (sid) returned
   // by Frappe, then fetches a CSRF token so writes are allowed.
-  static Future<void> sessionLogin(String email, String password) async {
+  static Future<void> _passwordLogin(String email, String password) async {
+    // Getting here means any token we held was rejected; drop it so the
+    // request below (and everything after) authenticates by cookie.
+    Session.I.clearAuth();
+    await AuthStore.clearToken();
     final r = await Session.I.dio.post(
       '/api/method/login',
       data: {'usr': email, 'pwd': password},
@@ -44,14 +104,55 @@ class Api {
     }
     Session.I.sid = sid;
     Session.I.email = email;
+    await AuthStore.saveSid(sid);
     await fetchCsrf();
+  }
+
+  /// Best effort upgrade from cookie auth to a permanent API token.
+  ///
+  /// Frappe's stock `generate_keys` is System Manager only, so managers and
+  /// admins get a token while ordinary reps quietly stay on the cookie +
+  /// silent-re-login path. To give reps tokens too, expose a whitelisted
+  /// server method that calls `generate_keys` on the caller's own user and
+  /// point [_tokenMethod] at it.
+  static const _tokenMethod =
+      '/api/method/frappe.core.doctype.user.user.generate_keys';
+
+  static Future<bool> provisionToken(String email) async {
+    if (Session.I.hasToken) return true;
+    try {
+      final r = await Session.I.dio.post(_tokenMethod,
+          data: {'user': email},
+          options: Options(contentType: Headers.formUrlEncodedContentType));
+      final m = (r.data is Map) ? r.data['message'] : null;
+      final secret = (m is Map) ? '${m['api_secret'] ?? ''}' : '';
+      if (secret.isEmpty) return false;
+      final key = await _fetchApiKey(email);
+      if (key.isEmpty) return false;
+      Session.I.apiKey = key;
+      Session.I.apiSecret = secret;
+      await AuthStore.saveToken(key, secret);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // generate_keys returns only the secret; the key itself lives on the User.
+  static Future<String> _fetchApiKey(String email) async {
+    final r = await Session.I.dio.get(
+        '${_res('User')}/${Uri.encodeComponent(email)}',
+        queryParameters: {'fields': '["api_key"]'});
+    final d = (r.data is Map) ? r.data['data'] : null;
+    return (d is Map) ? '${d['api_key'] ?? ''}' : '';
   }
 
   // Best-effort CSRF token retrieval. Frappe embeds it in the desk boot.
   static Future<void> fetchCsrf() async {
     try {
+      // noRetry: fetchCsrf runs inside the re-auth flow itself.
       final r = await Session.I.dio.get('/app',
-          options: Options(
+          options: Session.noRetry.copyWith(
               responseType: ResponseType.plain,
               validateStatus: (s) => s != null && s < 500));
       final html = '${r.data}';
@@ -64,11 +165,12 @@ class Api {
   }
 
   static Future<void> logout() async {
+    Session.I.reauthenticate = null;
     try {
       await Session.I.dio.get('/api/method/logout');
     } catch (_) {}
-    Session.I.sid = '';
-    Session.I.csrfToken = '';
+    Session.I.clearAuth();
+    await AuthStore.clear();
   }
 
   static Future<List<Map<String, dynamic>>> _list(String doctype,

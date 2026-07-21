@@ -244,7 +244,7 @@ class _ManagerApprovalsScreenState extends State<ManagerApprovalsScreen> {
                                 height: 170,
                                 width: double.infinity,
                                 fit: BoxFit.cover,
-                                headers: {'Cookie': 'sid=${Session.I.sid}'},
+                                headers: Session.I.authHeaders,
                                 errorBuilder: (_, __, ___) => Container(
                                     height: 60,
                                     alignment: Alignment.center,
