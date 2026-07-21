@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:manna_field_sales/core/auth_store.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
-import 'package:manna_field_sales/models/attendance.dart';
 import 'package:manna_field_sales/screens/map/day_map_screen.dart';
 
 /// Builds the REST path for an ERPNext doctype. Private to this library —
@@ -1435,10 +1434,40 @@ class Api {
     }
   }
 
+  /// Attaches the check-in photo to a Sales Visit. Tries the custom field first
+  /// so the image shows on the form; falls back to a plain attachment on sites
+  /// that don't have that field.
+  static Future<void> uploadVisitPhoto({
+    required String visitName,
+    required String filePath,
+  }) async {
+    try {
+      await uploadPhoto(
+        doctype: 'Sales Visit',
+        docname: visitName,
+        fieldname: 'custom_check_in_photo',
+        filePath: filePath,
+        filename: 'visit_check_in.jpg',
+      );
+    } catch (_) {
+      await uploadFileGetUrl(
+        filePath: filePath,
+        doctype: 'Sales Visit',
+        docname: visitName,
+        filename: 'visit_check_in.jpg',
+      );
+    }
+  }
+
   // -------- Attendance --------
-  // Today's punch state comes from `getAttendanceStatus` below, not a direct
-  // list query: only the server can say whether the punch windows are open,
-  // and only it knows the real time.
+  static Future<List<Map<String, dynamic>>> getTodayAttendance(
+      String salesPerson) =>
+      _list('Attendance Log',
+          fields:
+          '["name","sales_person","attendance_date","status","punch_in_time","punch_out_time","working_hours"]',
+          filters:
+          '[["sales_person","=","$salesPerson"],["attendance_date","=","${today()}"]]',
+          limit: 1);
 
   // ---- Attendance calendar + regularization ----
   static String _monthBounds(int year, int month, bool last) {
@@ -1569,52 +1598,73 @@ class Api {
         {'status': 'Approved', 'decided_by': Session.I.email});
   }
 
-  // ---- Punch in / out -------------------------------------------------
-  //
-  // The app sends an intent and a GPS fix; it never sends a time. The server
-  // stamps the punch off its own clock and decides whether the 05:00 / 21:30
-  // window allows it, so a rep who changes the device clock changes nothing.
-  // These endpoints live in the `manna_attendance` app under server/.
+  // Missed punch-out yesterday (punched in, never out) -> alert next morning.
+  static Future<Map<String, dynamic>?> getMissedPunchYesterday() async {
+    final me = Session.I.salesPerson;
+    if (me == null) return null;
+    final y = DateTime.now().subtract(const Duration(days: 1));
+    final ds =
+        '${y.year}-${y.month.toString().padLeft(2, '0')}-${y.day.toString().padLeft(2, '0')}';
+    final list = await _list('Attendance Log',
+        fields: '["name","attendance_date","punch_in_time","punch_out_time"]',
+        filters: '[["sales_person","=","$me"],["attendance_date","=","$ds"]]',
+        limit: 1);
+    if (list.isEmpty) return null;
+    final r = list.first;
+    if (r['punch_in_time'] != null && r['punch_out_time'] == null) return r;
+    return null;
+  }
 
-  static const _punchApi = 'manna_attendance.attendance.api';
-
-  /// Calls a whitelisted server method and returns its `message` payload.
-  ///
-  /// Rule rejections are *not* errors — they come back as a normal payload
-  /// with a rejecting `status`, so the caller can tell "too early" from "too
-  /// late" from an actual failure. Only genuine faults throw.
-  static Future<Map<String, dynamic>> _method(String method,
-      {Map<String, dynamic>? data}) async {
-    final r = await Session.I.dio
-        .post('/api/method/$method', data: data ?? const <String, dynamic>{});
+  static Future<String> punchIn({
+    required String salesPerson,
+    required double lat,
+    required double lng,
+  }) async {
+    final stamp =
+    DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
+    final body = {
+      'attendance_date': stamp.substring(0, 10),
+      'sales_person': salesPerson,
+      'status': 'Punched In',
+      'punch_in_time': stamp,
+      'punch_in_latitude': lat,
+      'punch_in_longitude': lng,
+    };
+    final r = await Session.I.dio.post(_res('Attendance Log'), data: body);
     if (r.statusCode == 200 || r.statusCode == 201) {
-      final m = (r.data is Map) ? r.data['message'] : null;
-      if (m is Map) return m.cast<String, dynamic>();
+      return r.data['data']['name'] as String;
     }
     throw Exception(_frappeError(r));
   }
 
-  /// Today's punch state, the server's clock, and any *previous* day that still
-  /// needs regularizing. The server derives the rep from the session, so there
-  /// is nothing to pass.
-  static Future<AttendanceStatus> getAttendanceStatus() async =>
-      AttendanceStatus.fromJson(await _method('$_punchApi.attendance_status'));
-
-  static Future<PunchResult> punchIn({
+  static Future<double> punchOut({
+    required String name,
+    required String punchInTime,
     required double lat,
     required double lng,
-  }) async =>
-      PunchResult.fromJson(await _method('$_punchApi.punch_in',
-          data: {'latitude': lat, 'longitude': lng}));
-
-  /// A second punch-out on the same working day replaces the first — the server
-  /// keeps the latest as official and files the old value in the audit trail.
-  static Future<PunchResult> punchOut({
-    required double lat,
-    required double lng,
-  }) async =>
-      PunchResult.fromJson(await _method('$_punchApi.punch_out',
-          data: {'latitude': lat, 'longitude': lng}));
+  }) async {
+    final stamp =
+    DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
+    double hours = 0;
+    try {
+      final tin = DateTime.parse(punchInTime.replaceFirst(' ', 'T'));
+      hours = DateTime.now().difference(tin).inMinutes / 60.0;
+      if (hours < 0) hours = 0;
+    } catch (_) {}
+    hours = double.parse(hours.toStringAsFixed(2));
+    final body = {
+      'punch_out_time': stamp,
+      'punch_out_latitude': lat,
+      'punch_out_longitude': lng,
+      'working_hours': hours,
+      'status': 'Punched Out',
+    };
+    final r = await Session.I.dio.put(
+        '${_res('Attendance Log')}/${Uri.encodeComponent(name)}',
+        data: body);
+    if (r.statusCode == 200 || r.statusCode == 201) return hours;
+    throw Exception(_frappeError(r));
+  }
 
   // -------- Expenses --------
   static Future<List<Map<String, dynamic>>> getMyExpenses() => _list(
@@ -2024,4 +2074,3 @@ class Api {
     return 'HTTP ${r.statusCode}';
   }
 }
-

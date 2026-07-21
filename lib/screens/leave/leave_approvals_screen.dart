@@ -58,7 +58,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return Colors.orange;
   }
 
-  void _reload() => setState(() => _future = _load());
+  void _reload() => setState(() {
+        _future = _load();
+      });
 
   Future<void> _act(Map<String, dynamic> l, bool approve) async {
     try {

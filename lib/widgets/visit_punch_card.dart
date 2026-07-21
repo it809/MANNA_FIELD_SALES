@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
@@ -18,6 +20,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   Map<String, dynamic>? _open;
   bool _busy = false, _loading = true;
   String? _lastDuration;
+  String? _photoPath;
 
   @override
   void initState() {
@@ -37,19 +40,59 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 3)));
 
+  /// Asks where the visit photo should come from. Returns null if the rep
+  /// backs out of the sheet.
+  Future<ImageSource?> _askSource() => showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (_) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Visit photo',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ]),
+        ),
+      );
+
+  Future<void> _pickPhoto() async {
+    final src = await _askSource();
+    if (src == null) return;
+    final img =
+        await ImagePicker().pickImage(source: src, imageQuality: 60, maxWidth: 1280);
+    if (img == null) return;
+    if (mounted) setState(() => _photoPath = img.path);
+  }
+
   Future<void> _punchIn() async {
     if (Session.I.salesPerson == null) {
       return _snack('No rep linked to this login.');
+    }
+    if (_photoPath == null) {
+      await _pickPhoto();
+      if (_photoPath == null) return _snack('A visit photo is required.');
     }
     setState(() => _busy = true);
     _snack('Getting GPS...');
     try {
       final pos = await getCurrentLocation();
-      await Api.punchInVisit(
+      final visit = await Api.punchInVisit(
           customer: widget.customer,
           lead: widget.lead,
           lat: pos.latitude,
           lng: pos.longitude);
+      await Api.uploadVisitPhoto(visitName: visit, filePath: _photoPath!);
+      _photoPath = null;
       _snack('Punched in ✓');
       await _load();
     } catch (e) {
@@ -121,6 +164,28 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
               ),
             ),
           ]),
+          if (!open && !_loading) ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              if (_photoPath != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(File(_photoPath!),
+                      width: 48, height: 48, fit: BoxFit.cover),
+                ),
+              if (_photoPath != null) const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _pickPhoto,
+                  icon: Icon(_photoPath == null
+                      ? Icons.add_a_photo
+                      : Icons.check_circle),
+                  label: Text(
+                      _photoPath == null ? 'Add visit photo' : 'Photo ready'),
+                ),
+              ),
+            ]),
+          ],
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,

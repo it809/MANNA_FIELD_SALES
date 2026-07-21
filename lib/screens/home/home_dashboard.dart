@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
-import 'package:manna_field_sales/models/attendance.dart';
 import 'package:manna_field_sales/screens/attendance/attendance_calendar_screen.dart';
 import 'package:manna_field_sales/screens/attendance/regularization_approvals_screen.dart';
 import 'package:manna_field_sales/screens/auth/login_screen.dart';
@@ -42,7 +41,7 @@ class _HomeDashboardState extends State<HomeDashboard>
     with WidgetsBindingObserver {
   late Future<List<int>> _counts;
   late Future<Map<String, dynamic>?> _activeTrip;
-  AttendanceStatus? _att;
+  Map<String, dynamic>? _att;
   bool _attLoading = true;
   bool _attBusy = false;
 
@@ -82,8 +81,8 @@ class _HomeDashboardState extends State<HomeDashboard>
     }
     setState(() => _attLoading = true);
     try {
-      final status = await Api.getAttendanceStatus();
-      if (mounted) setState(() => _att = status);
+      final list = await Api.getTodayAttendance(rep);
+      if (mounted) setState(() => _att = list.isNotEmpty ? list.first : null);
     } catch (_) {
     } finally {
       if (mounted) setState(() => _attLoading = false);
@@ -93,28 +92,15 @@ class _HomeDashboardState extends State<HomeDashboard>
   void _snack(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
-  /// Renders whatever the server decided. A rejection is reported, never
-  /// swallowed — the rep must not be left thinking a blocked punch went through.
-  void _showPunchResult(PunchResult r) {
-    if (r.outcome.needsRegularization) {
-      // Blocked past 21:30. We say so now, but deliberately do *not* offer the
-      // regularize prompt tonight; it surfaces against this day from tomorrow.
-      _snack(r.message);
-      return;
-    }
-    _snack(r.outcome.isAccepted ? '${r.message} ✓' : r.message);
-  }
-
   Future<void> _punchIn() async {
-    if (Session.I.salesPerson == null) {
-      return _snack('No rep linked to this login.');
-    }
+    final rep = Session.I.salesPerson;
+    if (rep == null) return _snack('No rep linked to this login.');
     setState(() => _attBusy = true);
     _snack('Getting GPS…');
     try {
       final pos = await getCurrentLocation();
-      _showPunchResult(
-          await Api.punchIn(lat: pos.latitude, lng: pos.longitude));
+      await Api.punchIn(salesPerson: rep, lat: pos.latitude, lng: pos.longitude);
+      _snack('Punched in ✓');
       await _loadAtt();
     } catch (e) {
       _snack('Failed: $e');
@@ -129,8 +115,13 @@ class _HomeDashboardState extends State<HomeDashboard>
     _snack('Getting GPS…');
     try {
       final pos = await getCurrentLocation();
-      _showPunchResult(
-          await Api.punchOut(lat: pos.latitude, lng: pos.longitude));
+      final hours = await Api.punchOut(
+        name: _att!['name'],
+        punchInTime: (_att!['punch_in_time'] ?? '').toString(),
+        lat: pos.latitude,
+        lng: pos.longitude,
+      );
+      _snack('Punched out ✓  ${hours.toStringAsFixed(2)} h');
       await _loadAtt();
     } catch (e) {
       _snack('Failed: $e');
@@ -218,53 +209,42 @@ class _HomeDashboardState extends State<HomeDashboard>
     );
   }
 
-  /// The "tap to regularize" warning. Driven entirely by the days the server
-  /// flags — and the server only ever flags days before today, so this cannot
-  /// appear on the night a punch-out was missed or blocked. It is also purely
-  /// informational: it never gates today's punch-in.
   Widget _missedPunchBanner() {
-    final missed = _att?.pendingRegularizations ?? const <RegularizationPrompt>[];
-    if (missed.isEmpty) return const SizedBox.shrink();
-    final first = missed.first;
-    final more = missed.length - 1;
-    return Card(
-      color: const Color(0xFFFFF7ED),
-      child: ListTile(
-        leading: const Icon(Icons.warning_amber, color: Color(0xFFF59E0B)),
-        title: Text(
-            more > 0
-                ? '${missed.length} days need regularizing'
-                : 'Missed punch-out on ${first.attendanceDate}',
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(more > 0
-            ? 'Earliest ${first.attendanceDate}. Tap to regularize.'
-            : 'You punched in but never punched out. Tap to regularize.'),
-        onTap: () => _go(const AttendanceCalendarScreen()),
-      ),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: Api.getMissedPunchYesterday(),
+      builder: (context, snap) {
+        final miss = snap.data;
+        if (miss == null) return const SizedBox.shrink();
+        return Card(
+          color: const Color(0xFFFFF7ED),
+          child: ListTile(
+            leading: const Icon(Icons.warning_amber, color: Color(0xFFF59E0B)),
+            title: const Text('Missed punch-out yesterday',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(
+                'You punched in on ${miss['attendance_date']} but never punched out. Tap to regularize.'),
+            onTap: () => _go(const AttendanceCalendarScreen()),
+          ),
+        );
+      },
     );
   }
 
   Widget _attendanceCard() {
-    final att = _att;
-    final isIn = att?.isPunchedIn ?? false;
-    final isOut = att?.isPunchedOut ?? false;
+    final status = (_att?['status'] ?? '').toString();
+    final isIn = status == 'Punched In';
+    final isOut = status == 'Punched Out';
     String line;
     if (_attLoading) {
       line = 'Loading attendance…';
     } else if (isIn) {
-      line = 'Punched in at ${hhmm(att?.punchInTime)}';
-      final shut = att?.punchOutBlockedReason;
-      if (shut != null) line = '$line · $shut';
+      line = 'Punched in at ${(_att?['punch_in_time'] ?? '').toString().padRight(16).substring(11, 16)}';
     } else if (isOut) {
-      line = 'Done for today · ${att?.workingHours ?? 0} h';
+      line =
+      'Done for today · ${(_att?['working_hours'] ?? 0)} h';
     } else {
-      // Outside the punch-in window this explains the greyed-out button.
-      line = att?.punchInBlockedReason ?? 'Not punched in yet';
+      line = 'Not punched in yet';
     }
-    // The button is enabled only while the server's window is open — computed
-    // from the server clock carried forward monotonically, never the device's.
-    final canAct = isIn ? (att?.punchOutEnabled ?? false)
-                        : (att?.punchInEnabled ?? false);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -288,8 +268,9 @@ class _HomeDashboardState extends State<HomeDashboard>
           ),
           if (!_attLoading && !isOut)
             FilledButton.icon(
-              onPressed:
-                  (_attBusy || !canAct) ? null : (isIn ? _punchOut : _punchIn),
+              onPressed: _attBusy
+                  ? null
+                  : (isIn ? _punchOut : _punchIn),
               icon: Icon(isIn ? Icons.logout : Icons.login, size: 18),
               label: Text(isIn ? 'Punch Out' : 'Punch In'),
               style: FilledButton.styleFrom(

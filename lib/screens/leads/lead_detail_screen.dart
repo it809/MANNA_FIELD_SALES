@@ -28,8 +28,9 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
     _ordersFut = Api.getLeadOrders(lead: widget.lead['name'] as String);
   }
 
-  void _reload() => setState(
-          () => _ordersFut = Api.getLeadOrders(lead: widget.lead['name'] as String));
+  void _reload() => setState(() {
+        _ordersFut = Api.getLeadOrders(lead: widget.lead['name'] as String);
+      });
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 4)));
@@ -37,11 +38,37 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
   String get _locStatus =>
       (_l['custom_location_status'] ?? 'Not Captured').toString();
 
+  /// Asks whether the banner photo comes from the camera or the gallery.
+  Future<ImageSource?> _askSource() => showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (_) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Location / banner photo',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ]),
+        ),
+      );
+
   Future<void> _capture() async {
     final rep = Session.I.salesPerson;
     if (rep == null) return _snack('No rep linked to this login.');
-    final img = await ImagePicker().pickImage(
-        source: ImageSource.camera, imageQuality: 60, maxWidth: 1280);
+    final src = await _askSource();
+    if (src == null) return;
+    final img = await ImagePicker()
+        .pickImage(source: src, imageQuality: 60, maxWidth: 1280);
     if (img == null) return _snack('A location/banner photo is required.');
     setState(() => _busy = true);
     _snack('Getting GPS...');
