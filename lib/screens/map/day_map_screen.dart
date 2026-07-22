@@ -48,6 +48,15 @@ class _DayMapScreenState extends State<DayMapScreen> {
   bool _loadingRoute = false;
   List<_MapPoint> _routePoints = [];
 
+  // Standing layers, moved here from My Map: my recent customer and lead visits.
+  static const int _visitDays = 30;
+  bool _showVisits = false;
+  bool _showLeadVisits = false;
+  bool _loadingLayers = false;
+  bool _layersLoaded = false;
+  List<_MapPoint> _myVisitPoints = [];
+  List<_MapPoint> _myLeadVisitPoints = [];
+
   // Lead overlay — every lead whose location has been captured, narrowed to the
   // picked route when there is one.
   bool _showLeads = false;
@@ -105,7 +114,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       for (final c in list) {
         final lat = _num(c['custom_latitude']);
         final lng = _num(c['custom_longitude']);
-        if (lat == 0 || lng == 0) continue;
+        if (!isMappableLatLng(lat, lng)) continue;
         pts.add(_MapPoint(
             lat: lat,
             lng: lng,
@@ -141,7 +150,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       for (final l in list) {
         final lat = _num(l['custom_latitude']);
         final lng = _num(l['custom_longitude']);
-        if (lat == 0 || lng == 0) continue;
+        if (!isMappableLatLng(lat, lng)) continue;
         pts.add(_MapPoint(
             lat: lat,
             lng: lng,
@@ -161,6 +170,51 @@ class _DayMapScreenState extends State<DayMapScreen> {
       if (mounted) setState(() => _error = '$e');
     } finally {
       if (mounted) setState(() => _loadingLeads = false);
+    }
+  }
+
+  // Fetched once, then the chips just switch the markers on and off.
+  Future<void> _loadLayers({bool force = false}) async {
+    if (!_showVisits && !_showLeadVisits) return;
+    if (_layersLoaded && !force) return;
+    setState(() {
+      _loadingLayers = true;
+      _error = null;
+    });
+    try {
+      final res = await Api.getMyVisitsWithLocation(days: _visitDays);
+      final vis = <_MapPoint>[];
+      final leadVis = <_MapPoint>[];
+      for (final v in res) {
+        final lat = _num(v['check_in_latitude']);
+        final lng = _num(v['check_in_longitude']);
+        if (!isMappableLatLng(lat, lng)) continue;
+        final isLead = Api.isLeadVisit(v);
+        (isLead ? leadVis : vis).add(_MapPoint(
+            lat: lat,
+            lng: lng,
+            kind: 'my_visit',
+            title: Api.visitParty(v),
+            subtitle: [
+              isLead ? 'Lead visit' : 'Visit',
+              '${v['visit_date']}',
+              _fmtTime(v['check_in_time']),
+              '${v['visit_status']}',
+            ].where((x) => x.isNotEmpty && x != 'null').join(' · '),
+            color: isLead ? const Color(0xFF0F766E) : const Color(0xFFF46A21),
+            icon: isLead ? Icons.person_pin_circle : Icons.store));
+      }
+      if (mounted) {
+        setState(() {
+          _myVisitPoints = vis;
+          _myLeadVisitPoints = leadVis;
+          _layersLoaded = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingLayers = false);
     }
   }
 
@@ -404,22 +458,56 @@ class _DayMapScreenState extends State<DayMapScreen> {
         const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerLeft,
-          child: FilterChip(
-            selected: _showLeads,
-            avatar: _loadingLeads
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.person_pin, size: 18),
-            label: Text(_route == _allRoutes
-                ? 'Show leads'
-                : 'Show leads on $_route'),
-            onSelected: (v) {
-              setState(() => _showLeads = v);
-              _loadLeads();
-            },
-          ),
+          child: Wrap(spacing: 8, runSpacing: 4, children: [
+            FilterChip(
+              selected: _showLeads,
+              avatar: _loadingLeads
+                  ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.person_pin, size: 18),
+              label: Text(_route == _allRoutes
+                  ? 'Show leads'
+                  : 'Show leads on $_route'),
+              onSelected: (v) {
+                setState(() => _showLeads = v);
+                _loadLeads();
+              },
+            ),
+            FilterChip(
+              selected: _showVisits,
+              avatar: _loadingLayers
+                  ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.store, size: 18),
+              label: Text(_layersLoaded
+                  ? 'Visits (${_myVisitPoints.length})'
+                  : 'Visits'),
+              onSelected: (v) {
+                setState(() => _showVisits = v);
+                _loadLayers();
+              },
+            ),
+            FilterChip(
+              selected: _showLeadVisits,
+              avatar: _loadingLayers
+                  ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.person_pin_circle, size: 18),
+              label: Text(_layersLoaded
+                  ? 'Lead visits (${_myLeadVisitPoints.length})'
+                  : 'Lead visits'),
+              onSelected: (v) {
+                setState(() => _showLeadVisits = v);
+                _loadLayers();
+              },
+            ),
+          ]),
         ),
       ]),
     );
@@ -447,16 +535,28 @@ class _DayMapScreenState extends State<DayMapScreen> {
         if (_showLeads)
           chip(const Color(0xFF4338CA), Icons.person_pin,
               'Lead (${_leadPoints.length})'),
+        if (_showVisits || _showLeadVisits)
+          Text('my visits: last $_visitDays days',
+              style: const TextStyle(fontSize: 11, color: Colors.black45)),
       ]),
     );
   }
 
   Widget _map() {
-    final all = [..._routePoints, ..._leadPoints, ..._points];
+    final all = [
+      ..._routePoints,
+      ..._leadPoints,
+      if (_showVisits) ..._myVisitPoints,
+      if (_showLeadVisits) ..._myLeadVisitPoints,
+      ..._points,
+    ];
     if (all.isEmpty) {
       final overlays = <String>[
         if (_route != _allRoutes) 'no customer on this route has coordinates',
         if (_showLeads) 'no lead has a captured location',
+        if (_showVisits) 'no visit in the last $_visitDays days has a location',
+        if (_showLeadVisits)
+          'no lead visit in the last $_visitDays days has a location',
       ];
       return Center(
           child: Padding(
@@ -503,6 +603,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
               _load();
               _loadRoute();
               _loadLeads();
+              _loadLayers(force: true);
             }),
       ]),
       body: Column(children: [
