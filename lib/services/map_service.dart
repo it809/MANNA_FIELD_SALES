@@ -9,9 +9,22 @@ String mapTileUrl() => kMapTilerKey.isEmpty
     ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
     : 'https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=$kMapTilerKey';
 
+// A point the map can actually project. Web Mercator blows up towards the
+// poles, so anything past ~85° (or a NaN/infinite value from bad GPS data)
+// would produce infinite pixel bounds and crash the tile layer.
+bool isMappableLatLng(double lat, double lng) =>
+    lat.isFinite &&
+    lng.isFinite &&
+    lat.abs() <= 85.05 &&
+    lng.abs() <= 180 &&
+    !(lat == 0 && lng == 0);
+
 // Center + a safe zoom for a set of points. Used instead of initialCameraFit,
 // which can leave map tiles blank until the first user interaction.
-({LatLng center, double zoom}) mapCenterZoom(List<LatLng> pts) {
+({LatLng center, double zoom}) mapCenterZoom(List<LatLng> all) {
+  final pts = all
+      .where((p) => isMappableLatLng(p.latitude, p.longitude))
+      .toList();
   if (pts.isEmpty) return (center: const LatLng(10.2, 76.3), zoom: 7.2);
   double minLa = pts.first.latitude, maxLa = minLa;
   double minLo = pts.first.longitude, maxLo = minLo;

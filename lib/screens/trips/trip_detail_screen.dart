@@ -21,6 +21,8 @@ class TripDetailScreen extends StatefulWidget {
 class _TripDetailScreenState extends State<TripDetailScreen> {
   Map<String, dynamic>? _trip;
   bool _loading = true;
+  // Loaded once and shared by the visits list and the route map.
+  List<Map<String, dynamic>> _visits = [];
 
   @override
   void initState() {
@@ -32,6 +34,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     setState(() => _loading = true);
     try {
       _trip = await Api.getTrip(widget.tripName);
+    } catch (_) {}
+    try {
+      _visits = await Api.getVisitsForTrip(widget.tripName);
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
@@ -1328,44 +1333,29 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       const Text('Visits on this trip',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       const SizedBox(height: 4),
-      FutureBuilder<List<Map<String, dynamic>>>(
-        future: Api.getVisitsForTrip(widget.tripName),
-        builder: (context, snap) {
-          if (snap.connectionState != ConnectionState.done) {
-            return const Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Loading visits…',
-                    style: TextStyle(fontSize: 12, color: Colors.black45)));
-          }
-          final visits = snap.data ?? [];
-          if (visits.isEmpty) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                  'No visits linked yet. Visits you check into during this trip appear here.',
-                  style: TextStyle(color: Colors.black45, fontSize: 12)),
-            );
-          }
-          return Column(
-              children: visits
-                  .map((v) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(
-                      Api.isLeadVisit(v)
-                          ? Icons.person_pin_circle
-                          : Icons.store,
-                      color: const Color(0xFFF46A21)),
-                  title: Text(Api.visitParty(v)),
-                  subtitle: Text(
-                      '${Api.isLeadVisit(v) ? 'Lead · ' : ''}'
-                          '${v['visit_date']} · ${v['visit_status']} · ${v['sales_person']}'),
-                ),
-              ))
-                  .toList());
-        },
-      ),
+      if (_visits.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+              'No visits linked yet. Visits you check into during this trip appear here.',
+              style: TextStyle(color: Colors.black45, fontSize: 12)),
+        )
+      else
+        ..._visits.map((v) => Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ListTile(
+                dense: true,
+                leading: Icon(
+                    Api.isLeadVisit(v)
+                        ? Icons.person_pin_circle
+                        : Icons.store,
+                    color: const Color(0xFFF46A21)),
+                title: Text(Api.visitParty(v)),
+                subtitle: Text(
+                    '${Api.isLeadVisit(v) ? 'Lead · ' : ''}'
+                        '${v['visit_date']} · ${v['visit_status']} · ${v['sales_person']}'),
+              ),
+            )),
     ]);
   }
 
@@ -1447,17 +1437,28 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     ((_trip?['gps_points'] as List?) ?? []).cast<Map<String, dynamic>>();
     final pts = raw
         .where((p) =>
-    _num(p['latitude']) != 0 && _num(p['longitude']) != 0)
+    isMappableLatLng(_num(p['latitude']), _num(p['longitude'])))
         .toList()
       ..sort((a, b) => '${a['timestamp']}'.compareTo('${b['timestamp']}'));
     final latlngs = pts
         .map((p) => LatLng(_num(p['latitude']), _num(p['longitude'])))
         .toList();
+    // Where each visit was checked in — drawn on top of the recorded drive.
+    final visitPts = _visits
+        .where((v) => isMappableLatLng(
+            _num(v['check_in_latitude']), _num(v['check_in_longitude'])))
+        .toList();
+    final visitLatLngs = visitPts
+        .map((v) =>
+            LatLng(_num(v['check_in_latitude']), _num(v['check_in_longitude'])))
+        .toList();
+    final hasMap = latlngs.length >= 2 || visitLatLngs.isNotEmpty;
+    final cz = mapCenterZoom([...latlngs, ...visitLatLngs]);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Text('Route',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       const SizedBox(height: 4),
-      if (latlngs.length < 2)
+      if (!hasMap)
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Text(
@@ -1473,47 +1474,126 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             borderRadius: BorderRadius.circular(12),
             child: FlutterMap(
               options: MapOptions(
-                initialCenter: mapCenterZoom(latlngs).center,
-                initialZoom: mapCenterZoom(latlngs).zoom,
+                initialCenter: cz.center,
+                initialZoom: cz.zoom,
               ),
               children: [
                 TileLayer(
                   urlTemplate: mapTileUrl(),
                   userAgentPackageName: 'com.manna.fieldsales',
                 ),
-                PolylineLayer(polylines: [
-                  Polyline(
-                      points: latlngs,
-                      strokeWidth: 4,
-                      color: const Color(0xFF2563EB)),
-                ]),
+                if (latlngs.length >= 2)
+                  PolylineLayer(polylines: [
+                    Polyline(
+                        points: latlngs,
+                        strokeWidth: 4,
+                        color: const Color(0xFF2563EB)),
+                  ]),
                 MarkerLayer(markers: [
-                  Marker(
-                    point: latlngs.first,
-                    width: 36,
-                    height: 36,
-                    child: const Icon(Icons.play_circle_fill,
-                        color: Color(0xFF16A34A), size: 30),
-                  ),
-                  Marker(
-                    point: latlngs.last,
-                    width: 36,
-                    height: 36,
-                    child: const Icon(Icons.flag,
-                        color: Color(0xFF7C3AED), size: 30),
-                  ),
+                  if (latlngs.length >= 2) ...[
+                    Marker(
+                      point: latlngs.first,
+                      width: 36,
+                      height: 36,
+                      child: const Icon(Icons.play_circle_fill,
+                          color: Color(0xFF16A34A), size: 30),
+                    ),
+                    Marker(
+                      point: latlngs.last,
+                      width: 36,
+                      height: 36,
+                      child: const Icon(Icons.flag,
+                          color: Color(0xFF7C3AED), size: 30),
+                    ),
+                  ],
+                  ...visitPts.map((v) {
+                    final isLead = Api.isLeadVisit(v);
+                    return Marker(
+                      point: LatLng(_num(v['check_in_latitude']),
+                          _num(v['check_in_longitude'])),
+                      width: 40,
+                      height: 40,
+                      child: GestureDetector(
+                        onTap: () => _showVisitPoint(v),
+                        child: Icon(
+                            isLead ? Icons.person_pin_circle : Icons.store,
+                            color: isLead
+                                ? const Color(0xFF0F766E)
+                                : const Color(0xFFF46A21),
+                            size: 34),
+                      ),
+                    );
+                  }),
                 ]),
               ],
             ),
           ),
         ),
-      if (pts.isNotEmpty)
+      if (pts.isNotEmpty || visitPts.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: Text('${pts.length} route point(s) logged',
+          child: Text(
+              [
+                if (pts.isNotEmpty) '${pts.length} route point(s) logged',
+                if (visitPts.isNotEmpty) '${visitPts.length} visit(s) on map',
+              ].join('  ·  '),
               style: const TextStyle(fontSize: 12, color: Colors.black54)),
         ),
+      if (_visits.length > visitPts.length)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+              '${_visits.length - visitPts.length} visit(s) have no check-in GPS.',
+              style: const TextStyle(fontSize: 12, color: Colors.black45)),
+        ),
     ]);
+  }
+
+  void _showVisitPoint(Map<String, dynamic> v) {
+    final lat = _num(v['check_in_latitude']);
+    final lng = _num(v['check_in_longitude']);
+    final isLead = Api.isLeadVisit(v);
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(isLead ? Icons.person_pin_circle : Icons.store,
+                  color: isLead
+                      ? const Color(0xFF0F766E)
+                      : const Color(0xFFF46A21)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(Api.visitParty(v),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Text([
+              isLead ? 'Lead visit' : 'Visit',
+              '${v['visit_date']}',
+              if (_fmtTime(v['check_in_time']).isNotEmpty)
+                _fmtTime(v['check_in_time']),
+              '${v['visit_status']}',
+            ].join(' · ')),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                navigateTo(lat, lng);
+              },
+              icon: const Icon(Icons.directions),
+              label: const Text('Navigate here'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _row(String k, String v) => Padding(

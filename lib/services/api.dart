@@ -653,6 +653,21 @@ class Api {
         orderBy: 'customer_name asc');
   }
 
+  // Leads that have had their location captured — the day map draws these as
+  // an overlay. Pass a route (Territory) to narrow it to that route's leads.
+  static Future<List<Map<String, dynamic>>> getLeadsWithLocation(
+      {String? territory}) {
+    final f = <String>['["custom_latitude","is","set"]'];
+    if (territory != null && territory.isNotEmpty) {
+      f.add('["territory","=","$territory"]');
+    }
+    return _list('Lead',
+        fields:
+            '["name","lead_name","company_name","territory","status","custom_latitude","custom_longitude","custom_location_status"]',
+        filters: '[${f.join(',')}]',
+        orderBy: 'lead_name asc');
+  }
+
   static Future<String> createCustomer({
     required String name,
     required String group,
@@ -733,6 +748,24 @@ class Api {
     return visits;
   }
 
+  // My own visits — customer and lead alike — with the GPS they were checked
+  // in at, so the map can plot where I have actually been.
+  static Future<List<Map<String, dynamic>>> getMyVisitsWithLocation(
+      {int days = 30}) async {
+    final me = Session.I.salesPerson;
+    if (me == null || me.isEmpty) return [];
+    final from = DateTime.now().subtract(Duration(days: days));
+    final fromStr =
+        '${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}';
+    return _withLeadNames(await _list('Sales Visit',
+        fields:
+            '[$_visitFields,"check_in_time","check_in_latitude","check_in_longitude"]',
+        filters:
+            '[["sales_person","=","$me"],["visit_date",">=","$fromStr"]]',
+        orderBy: 'visit_date desc',
+        limit: 0));
+  }
+
   static Future<List<Map<String, dynamic>>> getMyVisits() async =>
       _withLeadNames(await _list('Sales Visit',
           fields: '[$_visitFields]', filters: _mineFilter(), limit: 50));
@@ -756,7 +789,8 @@ class Api {
   static Future<List<Map<String, dynamic>>> getVisitsForTrip(
       String tripName) async =>
       _withLeadNames(await _list('Sales Visit',
-          fields: '[$_visitFields,"sales_person"]',
+          fields:
+              '[$_visitFields,"sales_person","check_in_time","check_in_latitude","check_in_longitude"]',
           filters: '[["custom_trip","=","$tripName"]]',
           orderBy: 'creation desc',
           limit: 0));

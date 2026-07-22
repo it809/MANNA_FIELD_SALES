@@ -48,6 +48,12 @@ class _DayMapScreenState extends State<DayMapScreen> {
   bool _loadingRoute = false;
   List<_MapPoint> _routePoints = [];
 
+  // Lead overlay — every lead whose location has been captured, narrowed to the
+  // picked route when there is one.
+  bool _showLeads = false;
+  bool _loadingLeads = false;
+  List<_MapPoint> _leadPoints = [];
+
   bool get _canPick =>
       Session.I.isManager || Session.I.isGM || Session.I.isHR;
 
@@ -119,6 +125,45 @@ class _DayMapScreenState extends State<DayMapScreen> {
     }
   }
 
+  Future<void> _loadLeads() async {
+    if (!_showLeads) {
+      setState(() => _leadPoints = []);
+      return;
+    }
+    setState(() {
+      _loadingLeads = true;
+      _error = null;
+    });
+    try {
+      final list = await Api.getLeadsWithLocation(
+          territory: _route == _allRoutes ? null : _route);
+      final pts = <_MapPoint>[];
+      for (final l in list) {
+        final lat = _num(l['custom_latitude']);
+        final lng = _num(l['custom_longitude']);
+        if (lat == 0 || lng == 0) continue;
+        pts.add(_MapPoint(
+            lat: lat,
+            lng: lng,
+            kind: 'lead',
+            title: '${l['lead_name'] ?? l['name']}',
+            subtitle: [
+              'Lead',
+              l['status'],
+              l['territory'],
+              l['custom_location_status'],
+            ].where((x) => x != null && '$x'.isNotEmpty).join(' · '),
+            color: const Color(0xFF4338CA),
+            icon: Icons.person_pin));
+      }
+      if (mounted) setState(() => _leadPoints = pts);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingLeads = false);
+    }
+  }
+
   double _num(dynamic v) => (v is num) ? v.toDouble() : 0.0;
 
   String _dateStr(DateTime d) =>
@@ -157,7 +202,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       for (final a in res[0]) {
         final inLat = _num(a['punch_in_latitude']);
         final inLng = _num(a['punch_in_longitude']);
-        if (inLat != 0 && inLng != 0) {
+        if (isMappableLatLng(inLat, inLng)) {
           pts.add(_MapPoint(
               lat: inLat,
               lng: inLng,
@@ -169,7 +214,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
         }
         final outLat = _num(a['punch_out_latitude']);
         final outLng = _num(a['punch_out_longitude']);
-        if (outLat != 0 && outLng != 0) {
+        if (isMappableLatLng(outLat, outLng)) {
           pts.add(_MapPoint(
               lat: outLat,
               lng: outLng,
@@ -183,7 +228,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       for (final v in res[1]) {
         final lat = _num(v['check_in_latitude']);
         final lng = _num(v['check_in_longitude']);
-        if (lat != 0 && lng != 0) {
+        if (isMappableLatLng(lat, lng)) {
           final isLead = Api.isLeadVisit(v);
           pts.add(_MapPoint(
               lat: lat,
@@ -201,7 +246,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       for (final t in res[2]) {
         final sLat = _num(t['start_latitude']);
         final sLng = _num(t['start_longitude']);
-        if (sLat != 0 && sLng != 0) {
+        if (isMappableLatLng(sLat, sLng)) {
           pts.add(_MapPoint(
               lat: sLat,
               lng: sLng,
@@ -214,7 +259,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
         }
         final eLat = _num(t['end_latitude']);
         final eLng = _num(t['end_longitude']);
-        if (eLat != 0 && eLng != 0) {
+        if (isMappableLatLng(eLat, eLng)) {
           pts.add(_MapPoint(
               lat: eLat,
               lng: eLng,
@@ -352,7 +397,29 @@ class _DayMapScreenState extends State<DayMapScreen> {
             if (v == null) return;
             setState(() => _route = v);
             _loadRoute();
+            // Leads follow the picked route, so reload them alongside it.
+            _loadLeads();
           },
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: FilterChip(
+            selected: _showLeads,
+            avatar: _loadingLeads
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.person_pin, size: 18),
+            label: Text(_route == _allRoutes
+                ? 'Show leads'
+                : 'Show leads on $_route'),
+            onSelected: (v) {
+              setState(() => _showLeads = v);
+              _loadLeads();
+            },
+          ),
         ),
       ]),
     );
@@ -377,20 +444,27 @@ class _DayMapScreenState extends State<DayMapScreen> {
         if (_route != _allRoutes)
           chip(const Color(0xFFDB2777), Icons.location_pin,
               '$_route customer (${_routePoints.length})'),
+        if (_showLeads)
+          chip(const Color(0xFF4338CA), Icons.person_pin,
+              'Lead (${_leadPoints.length})'),
       ]),
     );
   }
 
   Widget _map() {
-    final all = [..._routePoints, ..._points];
+    final all = [..._routePoints, ..._leadPoints, ..._points];
     if (all.isEmpty) {
+      final overlays = <String>[
+        if (_route != _allRoutes) 'no customer on this route has coordinates',
+        if (_showLeads) 'no lead has a captured location',
+      ];
       return Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Text(
-                _route == _allRoutes
+                overlays.isEmpty
                     ? 'No GPS points for this day.'
-                    : 'No GPS points for this day, and no customer on this route has coordinates yet.',
+                    : 'No GPS points for this day, and ${overlays.join(', and ')} yet.',
                 textAlign: TextAlign.center),
           ));
     }
@@ -428,6 +502,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
             onPressed: () {
               _load();
               _loadRoute();
+              _loadLeads();
             }),
       ]),
       body: Column(children: [
