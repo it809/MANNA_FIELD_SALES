@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/collections/collection_screen.dart';
@@ -8,6 +9,7 @@ import 'package:manna_field_sales/screens/complaints/complaint_screen.dart';
 import 'package:manna_field_sales/screens/orders/order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/services/map_service.dart';
 import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 import 'package:manna_field_sales/widgets/visit_punch_card.dart';
 
@@ -197,6 +199,83 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     ]);
   }
 
+  static double _num(dynamic v) =>
+      (v is num) ? v.toDouble() : double.tryParse('${v ?? ''}') ?? 0;
+
+  Future<void> _call(String phone) async {
+    final uri = Uri.parse('tel:${phone.replaceAll(RegExp(r'[^0-9+]'), '')}');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      _snack('No dialler available.');
+    }
+  }
+
+  /// The customer's own particulars — route, group, phone, ERP id and, once
+  /// the shop has been captured, its coordinates with a way to navigate there.
+  Widget _detailsSection() {
+    final lat = _num(c['custom_latitude']);
+    final lng = _num(c['custom_longitude']);
+    final mappable = isMappableLatLng(lat, lng);
+    final phone = '${c['custom_phone'] ?? ''}'.trim();
+
+    Widget row(IconData ic, String label, String value, {Widget? action}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            Icon(ic, size: 18, color: Colors.black45),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.black45)),
+                    Text(value, style: const TextStyle(fontSize: 14)),
+                  ]),
+            ),
+            ?action,
+          ]),
+        );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Column(children: [
+          row(Icons.alt_route, 'Route',
+              '${c['territory'] ?? ''}'.isEmpty ? '—' : '${c['territory']}'),
+          row(
+              Icons.category_outlined,
+              'Group',
+              '${c['customer_group'] ?? ''}'.isEmpty
+                  ? '—'
+                  : '${c['customer_group']}'),
+          row(Icons.phone, 'Phone', phone.isEmpty ? '—' : phone,
+              action: phone.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Call',
+                      icon: const Icon(Icons.call, color: Colors.green),
+                      onPressed: () => _call(phone))),
+          row(Icons.badge_outlined, 'Customer ID', '${c['name']}'),
+          row(
+              Icons.location_on_outlined,
+              'Location',
+              mappable
+                  ? '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
+                  : 'Not captured',
+              action: mappable
+                  ? IconButton(
+                      tooltip: 'Navigate',
+                      icon: const Icon(Icons.directions, color: Colors.blue),
+                      onPressed: () => navigateTo(lat, lng))
+                  : null),
+        ]),
+      ),
+    );
+  }
+
   Widget _creditSection() {
     final out = (c['custom_outstanding_balance'] is num)
         ? (c['custom_outstanding_balance'] as num).toDouble()
@@ -292,7 +371,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(c['customer_name'] ?? c['name'])),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child:
         Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -303,6 +382,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           Text([c['customer_group'], c['territory']]
               .where((x) => x != null && '$x'.isNotEmpty)
               .join(' - ')),
+          const SizedBox(height: 16),
+          _detailsSection(),
           const SizedBox(height: 16),
           _creditSection(),
           const SizedBox(height: 16),
