@@ -352,11 +352,33 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     await _saveLegs(legs);
   }
 
+  String _fmtTime(dynamic dt) {
+    if (dt == null) return '';
+    final d = DateTime.tryParse('$dt'.replaceFirst(' ', 'T'));
+    if (d == null) return '';
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  // Headline shown while ending a leg: distance and, when a rate is set for
+  // the mode, what that distance is worth.
+  String _legEstimateLine(double km, double rate, bool valid) {
+    if (!valid) return 'Enter a reading higher than the start odometer.';
+    final dist = '${km.toStringAsFixed(0)} km';
+    if (rate <= 0) return '$dist — no per-km rate set for this mode';
+    return '$dist  ·  ₹${(km * rate).toStringAsFixed(0)}';
+  }
+
   Future<void> _endLeg(int idx) async {
     final l = _legs[idx];
     final startO = _num(l['start_odometer']);
     final endOdo = TextEditingController();
     String? endPhoto;
+    // Per-km rate for this leg's mode, so the rep sees the claim as they type.
+    double rate = 0;
+    try {
+      rate = Api.rateForMode(await Api.getTripRates(), l['mode'] as String?);
+    } catch (_) {}
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(builder: (ctx, setL) {
@@ -365,6 +387,9 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               .pickImage(source: ImageSource.camera, imageQuality: 60);
           if (s != null) setL(() => endPhoto = s.path);
         }
+        final typed = double.tryParse(endOdo.text.trim()) ?? 0;
+        final valid = typed > startO;
+        final km = valid ? typed - startO : 0.0;
         return AlertDialog(
           title: const Text('End vehicle leg'),
           content: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -376,6 +401,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             TextField(
                 controller: endOdo,
                 keyboardType: TextInputType.number,
+                onChanged: (_) => setL(() {}),
                 decoration:
                 const InputDecoration(labelText: 'End odometer')),
             const SizedBox(height: 8),
@@ -387,13 +413,39 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               label: Text(
                   endPhoto == null ? 'End odometer photo' : 'End photo ✓'),
             ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: valid
+                    ? const Color(0xFFE7F6EC)
+                    : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_legEstimateLine(km, rate, valid),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 15)),
+                    if (valid && rate > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                            '${km.toStringAsFixed(0)} km × ₹${rate.toStringAsFixed(2)}/km',
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.black54)),
+                      ),
+                  ]),
+            ),
           ]),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
                 child: const Text('Cancel')),
             FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
+                onPressed: valid ? () => Navigator.pop(ctx, true) : null,
                 child: const Text('End leg')),
           ],
         );
@@ -420,13 +472,23 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       } catch (_) {}
     }
     final list = List<Map<String, dynamic>>.from(_legs);
+    // Stamp the moment the leg was actually closed, not when it is next saved.
+    final endedAt =
+        DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
     list[idx] = {
       ...list[idx],
       'end_odometer': endO,
       'leg_distance_km': endO - startO,
+      'custom_end_time': endedAt,
       if (endUrl != null) 'end_odometer_photo': endUrl,
     };
     await _saveLegs(list);
+    if (mounted) {
+      final km = endO - startO;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Leg completed at ${_fmtTime(endedAt)} — ${_legEstimateLine(km, rate, true)}')));
+    }
   }
 
   Future<void> _editLeg(int idx) async {
@@ -678,7 +740,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 child: const Text('End leg'),
               );
             } else {
-              trail = PopupMenuButton<String>(
+              final menu = PopupMenuButton<String>(
                 onSelected: (v) {
                   if (v == 'edit') _editLeg(e.key);
                   if (v == 'delete') _deleteLeg(e.key);
@@ -688,6 +750,30 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   PopupMenuItem(value: 'delete', child: Text('Delete')),
                 ],
               );
+              // A finished odometer leg reads "Completed" in place of the
+              // "End leg" button it replaces, stamped with the time it ended.
+              final endedAt = _fmtTime(l['custom_end_time']);
+              trail = isOdo
+                  ? Row(mainAxisSize: MainAxisSize.min, children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE7F6EC),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                            endedAt.isEmpty
+                                ? 'Completed'
+                                : 'Completed $endedAt',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF166534))),
+                      ),
+                      menu,
+                    ])
+                  : menu;
             }
           }
           return Card(
@@ -1478,11 +1564,6 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                   ]),
                   const SizedBox(height: 12),
                   _row('Date', '${_trip!['trip_date']}'),
-                  _row(
-                      'End odometer',
-                      _num(_trip!['end_odometer']) == 0
-                          ? '—'
-                          : '${_num(_trip!['end_odometer']).toStringAsFixed(0)} km'),
                   _row('Distance',
                       '${_num(_trip!['total_distance_km']).toStringAsFixed(0)} km'),
                   _row('Primary mode',

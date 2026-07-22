@@ -1319,6 +1319,7 @@ class Api {
         'custom_actual_end_odometer': l['custom_actual_end_odometer'] ?? 0,
         'start_odometer_photo': l['start_odometer_photo'],
         'end_odometer_photo': l['end_odometer_photo'],
+        'custom_end_time': l['custom_end_time'],
         'remarks': l['remarks'],
       });
     }
