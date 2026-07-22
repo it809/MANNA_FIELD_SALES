@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 
 class VisitPunchCard extends StatefulWidget {
   final String? customer;
@@ -20,6 +20,9 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   Map<String, dynamic>? _open;
   bool _busy = false, _loading = true;
   String? _lastDuration;
+
+  /// Optional photo staged for the next punch. Never gates the punch itself —
+  /// this is visit evidence, not the customer's location capture.
   String? _photoPath;
 
   @override
@@ -43,47 +46,29 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
         SnackBar(content: Text(m), duration: const Duration(seconds: 3)));
   }
 
-  /// Asks where the visit photo should come from. Returns null if the rep
-  /// backs out of the sheet.
-  Future<ImageSource?> _askSource() => showModalBottomSheet<ImageSource>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Visit photo',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ]),
-        ),
-      );
-
   Future<void> _pickPhoto() async {
-    final src = await _askSource();
-    if (src == null) return;
-    final img =
-        await ImagePicker().pickImage(source: src, imageQuality: 60, maxWidth: 1280);
+    final img = await pickPhoto(context, title: 'Visit photo');
     if (img == null) return;
     if (mounted) setState(() => _photoPath = img.path);
+  }
+
+  /// Uploads the staged photo, if any. A failure here is reported but never
+  /// rolls back the punch — the visit is already recorded.
+  Future<void> _uploadStagedPhoto(String visitName, {required bool checkOut}) async {
+    final path = _photoPath;
+    if (path == null) return;
+    try {
+      await Api.uploadVisitPhoto(
+          visitName: visitName, filePath: path, checkOut: checkOut);
+      _photoPath = null;
+    } catch (_) {
+      _snack('Punch saved, but the photo failed to upload.');
+    }
   }
 
   Future<void> _punchIn() async {
     if (Session.I.salesPerson == null) {
       return _snack('No rep linked to this login.');
-    }
-    if (_photoPath == null) {
-      await _pickPhoto();
-      if (_photoPath == null) return _snack('A visit photo is required.');
     }
     setState(() => _busy = true);
     _snack('Getting GPS...');
@@ -94,9 +79,8 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
           lead: widget.lead,
           lat: pos.latitude,
           lng: pos.longitude);
-      await Api.uploadVisitPhoto(visitName: visit, filePath: _photoPath!);
-      _photoPath = null;
       _snack('Punched in ✓');
+      await _uploadStagedPhoto(visit, checkOut: false);
       await _load();
     } catch (e) {
       _snack('Failed: $e');
@@ -119,6 +103,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
       );
       _lastDuration = mins.toStringAsFixed(0);
       _snack('Punched out ✓ — ${mins.toStringAsFixed(0)} min');
+      await _uploadStagedPhoto(_open!['name'] as String, checkOut: true);
       await _load();
     } catch (e) {
       _snack('Failed: $e');
@@ -167,16 +152,17 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
               ),
             ),
           ]),
-          if (!open && !_loading) ...[
+          if (!_loading) ...[
             const SizedBox(height: 8),
             Row(children: [
-              if (_photoPath != null)
+              if (_photoPath != null) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(6),
                   child: Image.file(File(_photoPath!),
                       width: 48, height: 48, fit: BoxFit.cover),
                 ),
-              if (_photoPath != null) const SizedBox(width: 8),
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _busy ? null : _pickPhoto,
@@ -184,7 +170,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
                       ? Icons.add_a_photo
                       : Icons.check_circle),
                   label: Text(
-                      _photoPath == null ? 'Add visit photo' : 'Photo ready'),
+                      _photoPath == null ? 'Add photo (optional)' : 'Photo ready'),
                 ),
               ),
             ]),

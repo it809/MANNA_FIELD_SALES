@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:image_picker/image_picker.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/collections/collection_screen.dart';
@@ -10,6 +8,7 @@ import 'package:manna_field_sales/screens/complaints/complaint_screen.dart';
 import 'package:manna_field_sales/screens/orders/order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 import 'package:manna_field_sales/widgets/visit_punch_card.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
@@ -37,28 +36,20 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 4)));
 
-  double _num(dynamic v) => (v is num) ? v.toDouble() : 0.0;
   String get _status =>
       (c['custom_location_status'] ?? 'Not Captured').toString();
 
+  /// Captures the shop location once. This never logs a visit — punching in
+  /// on the visit card is the only thing that creates a Sales Visit.
   Future<void> _capture() async {
     final rep = Session.I.salesPerson;
     if (rep == null) return _snack('No rep linked to this login.');
-    final img = await ImagePicker().pickImage(
-        source: ImageSource.camera, imageQuality: 60, maxWidth: 1280);
+    final img = await pickPhoto(context, title: 'Shop banner photo');
     if (img == null) return _snack('A shop banner photo is required.');
     setState(() => _busy = true);
     _snack('Getting GPS...');
     try {
       final pos = await getCurrentLocation();
-      final active = await Api.getActiveTrip();
-      await Api.createSalesVisit(
-        customer: c['name'],
-        salesPerson: rep,
-        lat: pos.latitude,
-        lng: pos.longitude,
-        trip: active?['name'] as String?,
-      );
       await Api.captureCustomerLocation(
         customer: c['name'],
         salesPerson: rep,
@@ -78,70 +69,6 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         c['custom_longitude'] = pos.longitude;
       });
       _snack('Captured - sent for manager verification.');
-    } catch (e) {
-      _snack('Failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  List<Map<String, dynamic>> _verifiedLocations() {
-    final out = <Map<String, dynamic>>[];
-    if (_status == 'Verified') {
-      out.add({
-        'name': 'Main',
-        'lat': _num(c['custom_verified_latitude']),
-        'lng': _num(c['custom_verified_longitude']),
-      });
-    }
-    for (final s in _sites) {
-      if ('${s['location_status']}' == 'Verified') {
-        out.add({
-          'name': '${s['site_name']}',
-          'lat': _num(s['verified_latitude']),
-          'lng': _num(s['verified_longitude']),
-        });
-      }
-    }
-    return out;
-  }
-
-  Future<void> _verifiedCheckIn() async {
-    final rep = Session.I.salesPerson;
-    if (rep == null) return _snack('No rep linked to this login.');
-    final locs = _verifiedLocations();
-    if (locs.isEmpty) {
-      return _snack('No verified location for this customer yet.');
-    }
-    setState(() => _busy = true);
-    _snack('Getting GPS...');
-    try {
-      final pos = await getCurrentLocation();
-      double bestD = double.infinity;
-      Map<String, dynamic>? best;
-      for (final l in locs) {
-        final d = Geolocator.distanceBetween(l['lat'] as double,
-            l['lng'] as double, pos.latitude, pos.longitude);
-        if (d < bestD) {
-          bestD = d;
-          best = l;
-        }
-      }
-      if (best == null || bestD > 100) {
-        _snack(
-            'Nearest verified location is ${bestD.toStringAsFixed(0)} m away (max 100 m). Move closer.');
-        return;
-      }
-      final siteName = '${best['name']}';
-      final name = await Api.createSalesVisit(
-        customer: c['name'],
-        salesPerson: rep,
-        lat: pos.latitude,
-        lng: pos.longitude,
-        site: siteName,
-        trip: (await Api.getActiveTrip())?['name'] as String?,
-      );
-      _snack('Checked in at $siteName — $name (${bestD.toStringAsFixed(0)} m)');
     } catch (e) {
       _snack('Failed: $e');
     } finally {
@@ -187,8 +114,8 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       ),
     );
     if (siteName == null || siteName.isEmpty) return;
-    final img = await ImagePicker().pickImage(
-        source: ImageSource.camera, imageQuality: 60, maxWidth: 1280);
+    if (!mounted) return;
+    final img = await pickPhoto(context, title: 'Site banner photo');
     if (img == null) return _snack('A site banner photo is required.');
     setState(() => _busy = true);
     _snack('Getting GPS...');
@@ -320,24 +247,44 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     ]);
   }
 
-  Widget _statusChip() {
+  /// One-time shop location capture, independent of visits. Once submitted the
+  /// rep cannot recapture — the button only reports where the location sits in
+  /// the manager's verification queue.
+  Widget _locationSection() {
     final s = _status;
-    Color col;
-    IconData ic;
-    if (s == 'Verified') {
-      col = Colors.green;
-      ic = Icons.verified;
-    } else if (s == 'Pending Verification') {
-      col = Colors.orange;
-      ic = Icons.hourglass_top;
-    } else {
-      col = Colors.grey;
-      ic = Icons.location_off;
-    }
-    return Chip(
-      avatar: Icon(ic, color: col, size: 18),
-      label: Text(s),
-      backgroundColor: col.withOpacity(0.12),
+    final submitted = s == 'Pending Verification';
+    final verified = s == 'Verified';
+
+    final Color col = verified
+        ? Colors.green
+        : submitted
+            ? Colors.orange
+            : Colors.grey;
+    final IconData ic = verified
+        ? Icons.verified
+        : submitted
+            ? Icons.hourglass_top
+            : Icons.my_location;
+    final String label = verified
+        ? 'Verified'
+        : submitted
+            ? 'Submitted for verification'
+            : 'Capture Location';
+
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        style: FilledButton.styleFrom(
+          backgroundColor:
+              verified || submitted ? col.withValues(alpha: 0.12) : null,
+          foregroundColor: verified || submitted ? col : null,
+          disabledBackgroundColor: col.withValues(alpha: 0.12),
+          disabledForegroundColor: col,
+        ),
+        onPressed: (_busy || verified || submitted) ? null : _capture,
+        icon: Icon(ic),
+        label: Padding(padding: const EdgeInsets.all(12), child: Text(label)),
+      ),
     );
   }
 
@@ -356,40 +303,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           Text([c['customer_group'], c['territory']]
               .where((x) => x != null && '$x'.isNotEmpty)
               .join(' - ')),
-          const SizedBox(height: 12),
-          Align(alignment: Alignment.centerLeft, child: _statusChip()),
           const SizedBox(height: 16),
           _creditSection(),
           const SizedBox(height: 16),
-          if (_verifiedLocations().isNotEmpty)
-            FilledButton.icon(
-              onPressed: _busy ? null : _verifiedCheckIn,
-              icon: const Icon(Icons.location_on),
-              label: const Padding(
-                  padding: EdgeInsets.all(12), child: Text('GPS Check-in')),
-            ),
-          if (_verifiedLocations().isNotEmpty) const SizedBox(height: 12),
-          if (_status != 'Verified')
-            Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_status == 'Pending Verification')
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: Text(
-                          'Main location awaiting manager verification. Recapture only if needed.',
-                          style: TextStyle(color: Colors.orange)),
-                    ),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _capture,
-                    icon: const Icon(Icons.add_a_photo),
-                    label: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(_status == 'Pending Verification'
-                            ? 'Recapture Main Banner + Location'
-                            : 'Capture Main Banner + Location')),
-                  ),
-                ]),
+          _locationSection(),
           const SizedBox(height: 16),
           VisitPunchCard(customer: c['name'] as String),
           const SizedBox(height: 16),

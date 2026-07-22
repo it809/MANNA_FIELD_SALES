@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_detail_screen.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 import 'package:manna_field_sales/widgets/visit_punch_card.dart';
 
 class LeadDetailScreen extends StatefulWidget {
@@ -37,38 +37,15 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
 
   String get _locStatus =>
       (_l['custom_location_status'] ?? 'Not Captured').toString();
+  bool get _submitted => _locStatus == 'Pending Verification';
+  bool get _verified => _locStatus == 'Verified';
 
-  /// Asks whether the banner photo comes from the camera or the gallery.
-  Future<ImageSource?> _askSource() => showModalBottomSheet<ImageSource>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('Location / banner photo',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ]),
-        ),
-      );
-
+  /// One-time location capture for the lead. This never logs a visit —
+  /// punching in on the visit card is the only thing that creates a visit.
   Future<void> _capture() async {
     final rep = Session.I.salesPerson;
     if (rep == null) return _snack('No rep linked to this login.');
-    final src = await _askSource();
-    if (src == null) return;
-    final img = await ImagePicker()
-        .pickImage(source: src, imageQuality: 60, maxWidth: 1280);
+    final img = await pickPhoto(context, title: 'Location / banner photo');
     if (img == null) return _snack('A location/banner photo is required.');
     setState(() => _busy = true);
     _snack('Getting GPS...');
@@ -161,17 +138,23 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: _busy ? null : _capture,
-                          icon: Icon(_busy
-                              ? Icons.hourglass_top
-                              : Icons.my_location),
+                          onPressed: (_busy || _submitted || _verified)
+                              ? null
+                              : _capture,
+                          icon: Icon(_verified
+                              ? Icons.verified
+                              : _submitted
+                                  ? Icons.hourglass_top
+                                  : Icons.my_location),
                           label: Padding(
                             padding: const EdgeInsets.all(10),
-                            child: Text(_locStatus == 'Not Captured'
-                                ? 'Punch in / Capture location'
-                                : (_locStatus == 'Rejected'
-                                ? 'Re-capture location'
-                                : 'Punch again / Re-capture')),
+                            child: Text(_verified
+                                ? 'Verified'
+                                : _submitted
+                                    ? 'Submitted for verification'
+                                    : (_locStatus == 'Rejected'
+                                        ? 'Re-capture Location'
+                                        : 'Capture Location')),
                           ),
                         ),
                       ),
