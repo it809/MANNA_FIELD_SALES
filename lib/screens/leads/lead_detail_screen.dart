@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/session.dart';
+import 'package:manna_field_sales/screens/leads/add_lead_screen.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_detail_screen.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
@@ -77,11 +78,22 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
     }
   }
 
+  Future<void> _edit() async {
+    final updated = await Navigator.push<Map<String, dynamic>>(context,
+        MaterialPageRoute(builder: (_) => AddLeadScreen(lead: _l)));
+    if (updated != null && mounted) setState(() => _l.addAll(updated));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = _l;
     return Scaffold(
-      appBar: AppBar(title: Text(l['lead_name'] ?? l['name'])),
+      appBar: AppBar(title: Text(l['lead_name'] ?? l['name']), actions: [
+        IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit lead',
+            onPressed: _busy ? null : _edit),
+      ]),
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.all(16),

@@ -25,6 +25,10 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   /// this is visit evidence, not the customer's location capture.
   String? _photoPath;
 
+  /// Leads already carry a location/banner photo of their own, so their punch
+  /// card is timer-only.
+  bool get _photoAllowed => widget.lead == null;
+
   @override
   void initState() {
     super.initState();
@@ -152,7 +156,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
               ),
             ),
           ]),
-          if (!_loading) ...[
+          if (!_loading && _photoAllowed) ...[
             const SizedBox(height: 8),
             Row(children: [
               if (_photoPath != null) ...[

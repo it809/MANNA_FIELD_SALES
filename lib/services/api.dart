@@ -931,6 +931,36 @@ class Api {
     throw Exception(_frappeError(r));
   }
 
+  /// Edits an existing lead. Blank values clear the field, so the whole
+  /// editable set is sent every time.
+  static Future<Map<String, dynamic>> updateLead({
+    required String name,
+    required String leadName,
+    String? company,
+    String? mobile,
+    String? email,
+    String? gstin,
+    String? address,
+    String? paymentTerms,
+    String? territory,
+  }) async {
+    final body = <String, dynamic>{'lead_name': leadName.trim()};
+    void put(String key, String? v) => body[key] = (v ?? '').trim();
+    put('company_name', company);
+    put('mobile_no', mobile);
+    put('email_id', email);
+    put('custom_gstin', gstin);
+    put('custom_address', address);
+    put('custom_payment_terms', paymentTerms);
+    put('territory', territory);
+    final r = await Session.I.dio.put(_res('Lead') + '/$name', data: body);
+    if (r.statusCode == 200 || r.statusCode == 201) {
+      final d = (r.data is Map) ? r.data['data'] : null;
+      return d is Map<String, dynamic> ? d : body;
+    }
+    throw Exception(_frappeError(r));
+  }
+
   static Future<List<Map<String, dynamic>>> getLeadOrders({String? lead}) {
     final rep = Session.I.salesPerson;
     final f = <String>[];

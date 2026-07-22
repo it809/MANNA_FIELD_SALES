@@ -6,7 +6,9 @@ import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 
 class AddLeadScreen extends StatefulWidget {
-  const AddLeadScreen({super.key});
+  /// Pass an existing lead row to edit it; omit it to create a new one.
+  final Map<String, dynamic>? lead;
+  const AddLeadScreen({super.key, this.lead});
   @override
   State<AddLeadScreen> createState() => _AddLeadScreenState();
 }
@@ -23,10 +25,26 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   String? _territory;
   bool _busy = false;
 
+  bool get _editing => widget.lead != null;
+
   @override
   void initState() {
     super.initState();
     _terrFut = Api.getTerritories();
+    final l = widget.lead;
+    if (l != null) {
+      String s(String k) => (l[k] ?? '').toString();
+      _name.text = s('lead_name');
+      _company.text = s('company_name');
+      _mobile.text = s('mobile_no');
+      _email.text = s('email_id');
+      _gstin.text = s('custom_gstin');
+      _address.text = s('custom_address');
+      _terms = s('custom_payment_terms').isEmpty
+          ? null
+          : s('custom_payment_terms');
+      _territory = s('territory').isEmpty ? null : s('territory');
+    }
   }
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
@@ -39,18 +57,34 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
     }
     setState(() => _busy = true);
     try {
-      final n = await Api.createLead(
-          leadName: _name.text.trim(),
-          company: _company.text,
-          mobile: _mobile.text,
-          email: _email.text,
-          gstin: _gstin.text,
-          address: _address.text,
-          paymentTerms: _terms,
-          territory: _territory);
-      _snack('Lead created ✓  $n');
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) Navigator.pop(context, true);
+      if (_editing) {
+        final updated = await Api.updateLead(
+            name: widget.lead!['name'] as String,
+            leadName: _name.text.trim(),
+            company: _company.text,
+            mobile: _mobile.text,
+            email: _email.text,
+            gstin: _gstin.text,
+            address: _address.text,
+            paymentTerms: _terms,
+            territory: _territory);
+        _snack('Lead updated ✓');
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) Navigator.pop(context, updated);
+      } else {
+        final n = await Api.createLead(
+            leadName: _name.text.trim(),
+            company: _company.text,
+            mobile: _mobile.text,
+            email: _email.text,
+            gstin: _gstin.text,
+            address: _address.text,
+            paymentTerms: _terms,
+            territory: _territory);
+        _snack('Lead created ✓  $n');
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) Navigator.pop(context, true);
+      }
     } catch (e) {
       _snack('Failed: $e');
     } finally {
@@ -61,11 +95,20 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Lead')),
+      appBar: AppBar(title: Text(_editing ? 'Edit Lead' : 'Add Lead')),
       body: FutureBuilder<List<String>>(
         future: _terrFut,
         builder: (context, snap) {
-          final terrs = snap.data ?? [];
+          final terrs = [...?snap.data];
+          // The saved value may not be in the list (still loading, or the
+          // territory was removed) — keep it selectable so it isn't lost.
+          if (_territory != null && !terrs.contains(_territory)) {
+            terrs.insert(0, _territory!);
+          }
+          final terms = ['Cash', 'Net 15', 'Net 30'];
+          if (_terms != null && !terms.contains(_terms)) {
+            terms.insert(0, _terms!);
+          }
           return ListView(padding: const EdgeInsets.all(16), children: [
             TextField(
                 controller: _name,
@@ -117,11 +160,9 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
               decoration: const InputDecoration(
                   labelText: 'Terms of payment (optional)',
                   border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'Net 15', child: Text('Net 15')),
-                DropdownMenuItem(value: 'Net 30', child: Text('Net 30')),
-              ],
+              items: terms
+                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .toList(),
               onChanged: (v) => setState(() => _terms = v),
             ),
             const SizedBox(height: 14),
@@ -137,9 +178,10 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
               onChanged: (v) => setState(() => _territory = v),
             ),
             const SizedBox(height: 12),
-            Text(
-                'Lead is assigned to you (${Session.I.salesPersonLabel ?? 'you'}). Take an order next — your manager approves it before you can send the proforma.',
-                style: const TextStyle(fontSize: 13, color: Colors.black54)),
+            if (!_editing)
+              Text(
+                  'Lead is assigned to you (${Session.I.salesPersonLabel ?? 'you'}). Take an order next — your manager approves it before you can send the proforma.',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54)),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _busy ? null : _save,
@@ -151,7 +193,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
                     width: 20,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white))
-                    : const Text('Save Lead'),
+                    : Text(_editing ? 'Save Changes' : 'Save Lead'),
               ),
             ),
           ]);
