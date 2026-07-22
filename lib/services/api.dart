@@ -642,6 +642,17 @@ class Api {
     return l.map((e) => e['name'] as String).toList();
   }
 
+  // Every customer on one route (Territory), regardless of which rep they are
+  // assigned to — the day map uses this to draw the whole route.
+  static Future<List<Map<String, dynamic>>> getCustomersInTerritory(
+      String territory) {
+    return _list('Customer',
+        fields:
+        '["name","customer_name","customer_group","territory","custom_latitude","custom_longitude","custom_phone"]',
+        filters: '[["territory","=","$territory"]]',
+        orderBy: 'customer_name asc');
+  }
+
   static Future<String> createCustomer({
     required String name,
     required String group,

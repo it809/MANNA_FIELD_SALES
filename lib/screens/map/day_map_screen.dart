@@ -41,6 +41,13 @@ class _DayMapScreenState extends State<DayMapScreen> {
   String? _error;
   List<_MapPoint> _points = [];
 
+  // Route (Territory) overlay — pick one and its customers show on the map.
+  static const String _allRoutes = '__all__';
+  List<String> _routes = [];
+  String _route = _allRoutes;
+  bool _loadingRoute = false;
+  List<_MapPoint> _routePoints = [];
+
   bool get _canPick =>
       Session.I.isManager || Session.I.isGM || Session.I.isHR;
 
@@ -63,7 +70,53 @@ class _DayMapScreenState extends State<DayMapScreen> {
         if (mounted) setState(() => _error = '$e');
       }
     }
+    _loadRoutes();
     if (_rep != null && _rep!.isNotEmpty) _load();
+  }
+
+  Future<void> _loadRoutes() async {
+    try {
+      final r = await Api.getTerritories();
+      if (mounted) setState(() => _routes = r);
+    } catch (_) {
+      // A missing route list shouldn't block the day's points.
+    }
+  }
+
+  Future<void> _loadRoute() async {
+    if (_route == _allRoutes) {
+      setState(() => _routePoints = []);
+      return;
+    }
+    final route = _route;
+    setState(() {
+      _loadingRoute = true;
+      _error = null;
+    });
+    try {
+      final list = await Api.getCustomersInTerritory(route);
+      final pts = <_MapPoint>[];
+      for (final c in list) {
+        final lat = _num(c['custom_latitude']);
+        final lng = _num(c['custom_longitude']);
+        if (lat == 0 || lng == 0) continue;
+        pts.add(_MapPoint(
+            lat: lat,
+            lng: lng,
+            kind: 'customer',
+            title: '${c['customer_name'] ?? c['name']}',
+            subtitle: [route, c['customer_group']]
+                .where((x) => x != null && '$x'.isNotEmpty)
+                .join(' · '),
+            color: const Color(0xFFDB2777),
+            icon: Icons.location_pin));
+      }
+      if (mounted) setState(() => _routePoints = pts);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loadingRoute = false);
+    }
   }
 
   double _num(dynamic v) => (v is num) ? v.toDouble() : 0.0;
@@ -232,7 +285,8 @@ class _DayMapScreenState extends State<DayMapScreen> {
   Widget _controls() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Row(children: [
+      child: Column(children: [
+        Row(children: [
         Expanded(
           child: OutlinedButton.icon(
             onPressed: _pickDate,
@@ -267,6 +321,39 @@ class _DayMapScreenState extends State<DayMapScreen> {
             ),
           ),
         ],
+        ]),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _route,
+          isExpanded: true,
+          decoration: InputDecoration(
+            isDense: true,
+            prefixIcon: const Icon(Icons.alt_route, size: 18),
+            border: const OutlineInputBorder(),
+            contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            suffixIcon: _loadingRoute
+                ? const Padding(
+              padding: EdgeInsets.all(12),
+              child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+                : null,
+          ),
+          items: [
+            const DropdownMenuItem(
+                value: _allRoutes, child: Text('All routes')),
+            ..._routes.map((r) => DropdownMenuItem(
+                value: r, child: Text(r, overflow: TextOverflow.ellipsis))),
+          ],
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() => _route = v);
+            _loadRoute();
+          },
+        ),
       ]),
     );
   }
@@ -287,21 +374,28 @@ class _DayMapScreenState extends State<DayMapScreen> {
         chip(const Color(0xFF0F766E), Icons.person_pin_circle, 'Lead visit'),
         chip(const Color(0xFF2563EB), Icons.play_circle_fill, 'Trip start'),
         chip(const Color(0xFF7C3AED), Icons.flag, 'Trip end'),
+        if (_route != _allRoutes)
+          chip(const Color(0xFFDB2777), Icons.location_pin,
+              '$_route customer (${_routePoints.length})'),
       ]),
     );
   }
 
   Widget _map() {
-    if (_points.isEmpty) {
-      return const Center(
+    final all = [..._routePoints, ..._points];
+    if (all.isEmpty) {
+      return Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Text('No GPS points for this day.',
+            padding: const EdgeInsets.all(24),
+            child: Text(
+                _route == _allRoutes
+                    ? 'No GPS points for this day.'
+                    : 'No GPS points for this day, and no customer on this route has coordinates yet.',
                 textAlign: TextAlign.center),
           ));
     }
-    final latlngs = _points.map((p) => LatLng(p.lat, p.lng)).toList();
-    final markers = _points
+    final latlngs = all.map((p) => LatLng(p.lat, p.lng)).toList();
+    final markers = all
         .map((p) => Marker(
       point: LatLng(p.lat, p.lng),
       width: 44,
@@ -329,7 +423,12 @@ class _DayMapScreenState extends State<DayMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Day Map'), actions: [
-        IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+        IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              _load();
+              _loadRoute();
+            }),
       ]),
       body: Column(children: [
         _controls(),
