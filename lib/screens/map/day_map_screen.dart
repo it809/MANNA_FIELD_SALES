@@ -131,14 +131,18 @@ class _DayMapScreenState extends State<DayMapScreen> {
         final lat = _num(v['check_in_latitude']);
         final lng = _num(v['check_in_longitude']);
         if (lat != 0 && lng != 0) {
+          final isLead = Api.isLeadVisit(v);
           pts.add(_MapPoint(
               lat: lat,
               lng: lng,
-              kind: 'visit',
-              title: '${v['customer'] ?? 'Visit'}',
-              subtitle: 'Check-in · ${_fmtTime(v['check_in_time'])}',
-              color: const Color(0xFFF46A21),
-              icon: Icons.store));
+              kind: isLead ? 'lead_visit' : 'visit',
+              title: Api.visitParty(v),
+              subtitle:
+              '${isLead ? 'Lead visit' : 'Check-in'} · ${_fmtTime(v['check_in_time'])}',
+              color: isLead
+                  ? const Color(0xFF0F766E)
+                  : const Color(0xFFF46A21),
+              icon: isLead ? Icons.person_pin_circle : Icons.store));
         }
       }
       for (final t in res[2]) {
@@ -280,6 +284,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
         chip(const Color(0xFF16A34A), Icons.login, 'Punch in'),
         chip(Colors.red, Icons.logout, 'Punch out'),
         chip(const Color(0xFFF46A21), Icons.store, 'Visit'),
+        chip(const Color(0xFF0F766E), Icons.person_pin_circle, 'Lead visit'),
         chip(const Color(0xFF2563EB), Icons.play_circle_fill, 'Trip start'),
         chip(const Color(0xFF7C3AED), Icons.flag, 'Trip end'),
       ]),

@@ -37,8 +37,11 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
     if (mounted) setState(() => _loading = false);
   }
 
-  void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(m), duration: const Duration(seconds: 3)));
+  void _snack(String m) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(m), duration: const Duration(seconds: 3)));
+  }
 
   /// Asks where the visit photo should come from. Returns null if the rep
   /// backs out of the sheet.

@@ -16,12 +16,17 @@ class MyVisitsScreen extends StatelessWidget {
       tileBuilder: (_, r) {
         final by = '${r['sales_person'] ?? ''}';
         final shared = by.isNotEmpty && by != me;
+        final isLead = Api.isLeadVisit(r);
         return ListTile(
-          leading: Icon(shared ? Icons.group : Icons.location_on,
+          leading: Icon(
+              shared
+                  ? Icons.group
+                  : (isLead ? Icons.person_pin_circle : Icons.location_on),
               color: shared ? const Color(0xFFF46A21) : null),
-          title: Text(r['customer'] ?? r['name']),
+          title: Text(Api.visitParty(r)),
           subtitle: Text(
-              '${r['visit_date'] ?? ''}  ·  ${r['visit_status'] ?? ''}'
+              '${isLead ? 'Lead  ·  ' : ''}'
+                  '${r['visit_date'] ?? ''}  ·  ${r['visit_status'] ?? ''}'
                   '${shared ? '  ·  logged by $by' : ''}'),
           trailing: shared
               ? const Chip(

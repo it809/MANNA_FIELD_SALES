@@ -94,7 +94,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     } catch (_) {}
     if (!mounted) return;
     final msg = visits.isEmpty
-        ? 'This trip has no customer visits recorded. End the trip anyway?'
+        ? 'This trip has no visits recorded. End the trip anyway?'
         : 'End this trip now? Route recording will stop.';
     final ok = await showDialog<bool>(
       context: context,
@@ -1266,11 +1266,15 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 margin: const EdgeInsets.symmetric(vertical: 4),
                 child: ListTile(
                   dense: true,
-                  leading: const Icon(Icons.store,
-                      color: Color(0xFFF46A21)),
-                  title: Text('${v['customer']}'),
+                  leading: Icon(
+                      Api.isLeadVisit(v)
+                          ? Icons.person_pin_circle
+                          : Icons.store,
+                      color: const Color(0xFFF46A21)),
+                  title: Text(Api.visitParty(v)),
                   subtitle: Text(
-                      '${v['visit_date']} · ${v['visit_status']} · ${v['sales_person']}'),
+                      '${Api.isLeadVisit(v) ? 'Lead · ' : ''}'
+                          '${v['visit_date']} · ${v['visit_status']} · ${v['sales_person']}'),
                 ),
               ))
                   .toList());

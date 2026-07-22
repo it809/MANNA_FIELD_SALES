@@ -676,10 +676,55 @@ class Api {
     return '[["$field","=","$v"]]';
   }
 
-  static Future<List<Map<String, dynamic>>> getMyVisits() => _list('Sales Visit',
-      fields: '["name","customer","visit_date","visit_status"]',
-      filters: _mineFilter(),
-      limit: 50);
+  // A visit is punched in against either a Customer or a Lead, so every visit
+  // list pulls both party fields — otherwise lead visits come back nameless.
+  static const _visitFields =
+      '"name","customer","custom_lead","visit_date","visit_status"';
+
+  /// True when the visit was punched in against a Lead rather than a Customer.
+  static bool isLeadVisit(Map<String, dynamic> v) =>
+      '${v['custom_lead'] ?? ''}'.isNotEmpty;
+
+  /// Who the visit was to: the customer, else the lead, else the doc id.
+  static String visitParty(Map<String, dynamic> v) {
+    final c = '${v['customer'] ?? ''}';
+    if (c.isNotEmpty) return c;
+    final l = '${v['custom_lead_name'] ?? v['custom_lead'] ?? ''}';
+    if (l.isNotEmpty) return l;
+    return '${v['name'] ?? ''}';
+  }
+
+  /// Fills `custom_lead_name` on visits that point at a Lead so lists can show
+  /// the lead's name instead of its document id. Cosmetic — on failure the
+  /// rows keep the id and still display.
+  static Future<List<Map<String, dynamic>>> _withLeadNames(
+      List<Map<String, dynamic>> visits) async {
+    final ids = visits
+        .map((v) => '${v['custom_lead'] ?? ''}')
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    if (ids.isEmpty) return visits;
+    try {
+      final rows = await _list('Lead',
+          fields: '["name","lead_name","company_name"]',
+          filters: '[["name","in",["${ids.join('","')}"]]]',
+          limit: 0);
+      final byId = <String, String>{
+        for (final r in rows)
+          '${r['name']}':
+              '${r['lead_name'] ?? r['company_name'] ?? r['name']}',
+      };
+      for (final v in visits) {
+        final id = '${v['custom_lead'] ?? ''}';
+        if (id.isNotEmpty) v['custom_lead_name'] = byId[id] ?? id;
+      }
+    } catch (_) {}
+    return visits;
+  }
+
+  static Future<List<Map<String, dynamic>>> getMyVisits() async =>
+      _withLeadNames(await _list('Sales Visit',
+          fields: '[$_visitFields]', filters: _mineFilter(), limit: 50));
 
   // ---- Trip tagging + visit linking (Sub-chunk 4) ----
   static Future<Map<String, dynamic>?> getActiveTrip() async {
@@ -697,13 +742,13 @@ class Api {
       _list('Sales Person',
           fields: '["name"]', orderBy: 'name asc', limit: 0);
 
-  static Future<List<Map<String, dynamic>>> getVisitsForTrip(String tripName) =>
-      _list('Sales Visit',
-          fields:
-          '["name","customer","visit_date","visit_status","sales_person"]',
+  static Future<List<Map<String, dynamic>>> getVisitsForTrip(
+      String tripName) async =>
+      _withLeadNames(await _list('Sales Visit',
+          fields: '[$_visitFields,"sales_person"]',
           filters: '[["custom_trip","=","$tripName"]]',
           orderBy: 'creation desc',
-          limit: 0);
+          limit: 0));
 
   static Future<void> saveTripTaggedReps(
       String tripName, List<String> reps) async {
@@ -724,8 +769,7 @@ class Api {
 
   // My visits + visits on trips I'm tagged on (auto-shared).
   static Future<List<Map<String, dynamic>>> getMyVisitsIncludingTagged() async {
-    const f =
-        '["name","customer","visit_date","visit_status","sales_person","custom_trip"]';
+    const f = '[$_visitFields,"sales_person","custom_trip"]';
     final own =
     await _list('Sales Visit', fields: f, filters: _mineFilter(), limit: 50);
     final byName = <String, Map<String, dynamic>>{};
@@ -745,7 +789,7 @@ class Api {
     }
     final list = byName.values.toList();
     list.sort((a, b) => '${b['visit_date']}'.compareTo('${a['visit_date']}'));
-    return list;
+    return _withLeadNames(list);
   }
 
   static Future<List<Map<String, dynamic>>> getMyOrders() => _list('Sales Order',
@@ -982,11 +1026,17 @@ class Api {
         .toIso8601String()
         .substring(0, 19)
         .replaceFirst('T', ' ');
+    // Link to the trip that's running, so the visit shows on the trip.
+    String? trip;
+    try {
+      trip = (await getActiveTrip())?['name'] as String?;
+    } catch (_) {}
     final body = {
       'visit_date': stamp.substring(0, 10),
       'sales_person': rep,
       if (customer != null) 'customer': customer,
       if (lead != null) 'custom_lead': lead,
+      if (trip != null && trip.isNotEmpty) 'custom_trip': trip,
       'visit_status': 'Checked In',
       'check_in_time': stamp,
       'check_in_latitude': lat,
@@ -1699,12 +1749,12 @@ class Api {
   // Read-only: uses coordinate fields already written by check-in, punch and
   // trip start/end. No backend changes needed.
   static Future<List<Map<String, dynamic>>> getVisitsForDay(
-      String rep, String date) =>
-      _list('Sales Visit',
+      String rep, String date) async =>
+      _withLeadNames(await _list('Sales Visit',
           fields:
-          '["name","customer","visit_date","visit_status","check_in_time","check_in_latitude","check_in_longitude"]',
+          '[$_visitFields,"check_in_time","check_in_latitude","check_in_longitude"]',
           filters: '[["sales_person","=","$rep"],["visit_date","=","$date"]]',
-          orderBy: 'check_in_time asc');
+          orderBy: 'check_in_time asc'));
 
   static Future<List<Map<String, dynamic>>> getAttendanceForDay(
       String rep, String date) =>
