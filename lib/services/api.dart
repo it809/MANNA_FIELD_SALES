@@ -1235,6 +1235,7 @@ class Api {
   static Future<String> createTrip({
     required String tripDate,
     required String purpose,
+    String? route,
     double startOdometer = 0,
     double? lat,
     double? lng,
@@ -1248,6 +1249,7 @@ class Api {
       'status': 'Active',
       'start_time': now,
       'start_odometer': startOdometer,
+      if (route != null && route.isNotEmpty) 'route': route,
       if (lat != null) 'start_latitude': lat,
       if (lng != null) 'start_longitude': lng,
     };

@@ -19,6 +19,28 @@ class _NewTripScreenState extends State<NewTripScreen> {
   bool _busy = false;
   String? _error;
 
+  // Route (Territory) the trip covers — same list the day map filters by.
+  List<String> _routes = [];
+  String? _route;
+  bool _loadingRoutes = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRoutes();
+  }
+
+  Future<void> _loadRoutes() async {
+    try {
+      final r = await Api.getTerritories();
+      if (mounted) setState(() => _routes = r);
+    } catch (_) {
+      // A missing route list shouldn't stop the rep starting a trip.
+    } finally {
+      if (mounted) setState(() => _loadingRoutes = false);
+    }
+  }
+
   Future<void> _save() async {
     setState(() {
       _busy = true;
@@ -36,6 +58,7 @@ class _NewTripScreenState extends State<NewTripScreen> {
       final name = await Api.createTrip(
         tripDate: ds,
         purpose: _purpose.text.trim(),
+        route: _route,
         lat: lat,
         lng: lng,
       );
@@ -77,6 +100,32 @@ class _NewTripScreenState extends State<NewTripScreen> {
           },
         ),
         const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _route,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: 'Route',
+            prefixIcon: const Icon(Icons.alt_route, size: 18),
+            border: const OutlineInputBorder(),
+            suffixIcon: _loadingRoutes
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                  )
+                : null,
+          ),
+          hint: Text(_loadingRoutes ? 'Loading routes…' : 'Select a route'),
+          items: _routes
+              .map((r) => DropdownMenuItem(
+                  value: r, child: Text(r, overflow: TextOverflow.ellipsis)))
+              .toList(),
+          onChanged:
+              _loadingRoutes ? null : (v) => setState(() => _route = v),
+        ),
+        const SizedBox(height: 12),
         TextField(
           controller: _purpose,
           decoration: const InputDecoration(
