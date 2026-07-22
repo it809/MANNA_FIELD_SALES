@@ -3,7 +3,9 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import 'package:manna_field_sales/core/attendance_rules.dart';
 import 'package:manna_field_sales/core/auth_store.dart';
+import 'package:manna_field_sales/core/server_clock.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
 import 'package:manna_field_sales/screens/map/day_map_screen.dart';
@@ -1731,11 +1733,13 @@ class Api {
         {'status': 'Approved', 'decided_by': Session.I.email});
   }
 
-  // Missed punch-out yesterday (punched in, never out) -> alert next morning.
+  // Missed punch-out (punched in, never out) -> alert next morning. Deliberately
+  // scoped to *yesterday*: a rep who is still out at 10 PM has not missed
+  // anything yet, so nothing nags them the same night.
   static Future<Map<String, dynamic>?> getMissedPunchYesterday() async {
     final me = Session.I.salesPerson;
     if (me == null) return null;
-    final y = DateTime.now().subtract(const Duration(days: 1));
+    final y = ServerClock.I.now().subtract(const Duration(days: 1));
     final ds =
         '${y.year}-${y.month.toString().padLeft(2, '0')}-${y.day.toString().padLeft(2, '0')}';
     final list = await _list('Attendance Log',
@@ -1748,13 +1752,22 @@ class Api {
     return null;
   }
 
+  /// `yyyy-MM-dd HH:mm:ss`, the shape Frappe wants for a Datetime field.
+  static String _stamp(DateTime t) =>
+      t.toIso8601String().substring(0, 19).replaceFirst('T', ' ');
+
   static Future<String> punchIn({
     required String salesPerson,
     required double lat,
     required double lng,
   }) async {
-    final stamp =
-    DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
+    final now = ServerClock.I.now();
+    if (minuteOfDay(now) < kPunchInFromMinute) {
+      throw const AttendanceWindowError(
+          'Punch-in opens at 5:00 AM. If you started before that, punch in now '
+          'and request a regularization for the earlier time.');
+    }
+    final stamp = _stamp(now);
     final body = {
       'attendance_date': stamp.substring(0, 10),
       'sales_person': salesPerson,
@@ -1770,23 +1783,32 @@ class Api {
     throw Exception(_frappeError(r));
   }
 
+  /// Records the moment the rep finished. Punching out a second time is
+  /// allowed and simply replaces the first — the last one is the official
+  /// punch-out, and the hours are recomputed from it.
   static Future<double> punchOut({
     required String name,
     required String punchInTime,
     required double lat,
     required double lng,
   }) async {
-    final stamp =
-    DateTime.now().toIso8601String().substring(0, 19).replaceFirst('T', ' ');
+    final now = ServerClock.I.now();
+    if (minuteOfDay(now) > kPunchOutUntilMinute) {
+      throw AttendanceWindowError(
+        'Punch-out closed at 9:30 PM. Request a regularization for today and '
+        'your manager can set the time you actually finished.',
+        regularizeDate: DateTime(now.year, now.month, now.day),
+      );
+    }
     double hours = 0;
     try {
       final tin = DateTime.parse(punchInTime.replaceFirst(' ', 'T'));
-      hours = DateTime.now().difference(tin).inMinutes / 60.0;
+      hours = now.difference(tin).inMinutes / 60.0;
       if (hours < 0) hours = 0;
     } catch (_) {}
     hours = double.parse(hours.toStringAsFixed(2));
     final body = {
-      'punch_out_time': stamp,
+      'punch_out_time': _stamp(now),
       'punch_out_latitude': lat,
       'punch_out_longitude': lng,
       'working_hours': hours,

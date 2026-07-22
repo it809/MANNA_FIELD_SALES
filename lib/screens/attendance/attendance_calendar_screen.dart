@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/server_clock.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/leave/apply_leave_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
@@ -13,7 +14,13 @@ final DateTime kGoLiveDate = DateTime(2026, 7, 20);
 class AttendanceCalendarScreen extends StatefulWidget {
   final String? rep; // defaults to logged-in person
   final String? label;
-  const AttendanceCalendarScreen({super.key, this.rep, this.label});
+
+  /// Opens the regularization form for this day as soon as the month loads.
+  /// Set when the rep arrives here from a punch the app had to refuse.
+  final DateTime? regularizeDate;
+
+  const AttendanceCalendarScreen(
+      {super.key, this.rep, this.label, this.regularizeDate});
   @override
   State<AttendanceCalendarScreen> createState() =>
       _AttendanceCalendarScreenState();
@@ -27,12 +34,15 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   final Map<String, Map<String, dynamic>> _regs = {};
   final Map<String, Map<String, dynamic>> _leaves = {};
 
+  /// `regularizeDate` opens its form once, not on every month reload.
+  bool _autoOpened = false;
+
   String get _rep => widget.rep ?? Session.I.salesPerson ?? '__none__';
 
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
+    final now = widget.regularizeDate ?? ServerClock.I.now();
     _year = now.year;
     _month = now.month;
     _load();
@@ -60,7 +70,13 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
         _leaves['${lv['leave_date']}'] = lv;
       }
     } catch (_) {}
-    if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    final day = widget.regularizeDate;
+    if (day != null && !_autoOpened && widget.rep == null) {
+      _autoOpened = true;
+      _regularize(day, _logs[_key(day)]);
+    }
   }
 
   void _shiftMonth(int delta) {
@@ -81,7 +97,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
 
   // Returns one of: green / amber / orange / red / null(blank)
   Color? _dayColor(DateTime day) {
-    final today = DateTime.now();
+    final today = ServerClock.I.now();
     final d0 = DateTime(day.year, day.month, day.day);
     final t0 = DateTime(today.year, today.month, today.day);
     final leave = _leaves[_key(day)];
@@ -245,7 +261,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     final reg = _regs[_key(day)];
     final leave = _leaves[_key(day)];
     final isFuture = DateTime(day.year, day.month, day.day)
-        .isAfter(DateTime.now());
+        .isAfter(ServerClock.I.now());
     showModalBottomSheet(
       context: context,
       builder: (_) => Padding(
@@ -327,8 +343,17 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
   }
 
   Future<void> _regularize(DateTime day, Map<String, dynamic>? log) async {
-    TimeOfDay inT = const TimeOfDay(hour: 9, minute: 30);
-    TimeOfDay outT = const TimeOfDay(hour: 18, minute: 30);
+    // Seed from whatever the day already has, so a rep fixing a missed
+    // punch-out only has to touch the one time that is actually wrong.
+    TimeOfDay pick(dynamic stamp, TimeOfDay fallback) {
+      final d = DateTime.tryParse('$stamp'.replaceFirst(' ', 'T'));
+      return d == null ? fallback : TimeOfDay(hour: d.hour, minute: d.minute);
+    }
+
+    TimeOfDay inT =
+    pick(log?['punch_in_time'], const TimeOfDay(hour: 9, minute: 30));
+    TimeOfDay outT =
+    pick(log?['punch_out_time'], const TimeOfDay(hour: 18, minute: 30));
     final reason = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,

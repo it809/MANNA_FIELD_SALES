@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
+import 'package:manna_field_sales/core/attendance_rules.dart';
+import 'package:manna_field_sales/core/server_clock.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
 import 'package:manna_field_sales/screens/attendance/attendance_calendar_screen.dart';
@@ -102,6 +104,8 @@ class _HomeDashboardState extends State<HomeDashboard>
       await Api.punchIn(salesPerson: rep, lat: pos.latitude, lng: pos.longitude);
       _snack('Punched in ✓');
       await _loadAtt();
+    } on AttendanceWindowError catch (e) {
+      await _outsidePunchHours(e);
     } catch (e) {
       _snack('Failed: $e');
     } finally {
@@ -111,6 +115,7 @@ class _HomeDashboardState extends State<HomeDashboard>
 
   Future<void> _punchOut() async {
     if (_att == null) return;
+    final again = (_att?['punch_out_time']) != null;
     setState(() => _attBusy = true);
     _snack('Getting GPS…');
     try {
@@ -121,12 +126,43 @@ class _HomeDashboardState extends State<HomeDashboard>
         lat: pos.latitude,
         lng: pos.longitude,
       );
-      _snack('Punched out ✓  ${hours.toStringAsFixed(2)} h');
+      _snack(again
+          ? 'Punch-out updated ✓  ${hours.toStringAsFixed(2)} h'
+          : 'Punched out ✓  ${hours.toStringAsFixed(2)} h');
       await _loadAtt();
+    } on AttendanceWindowError catch (e) {
+      await _outsidePunchHours(e);
     } catch (e) {
       _snack('Failed: $e');
     } finally {
       if (mounted) setState(() => _attBusy = false);
+    }
+  }
+
+  /// The punch was refused for the hour it is, not because anything broke —
+  /// so say which window closed and, where regularization is the way out,
+  /// hand the rep straight to it.
+  Future<void> _outsidePunchHours(AttendanceWindowError e) async {
+    if (!mounted) return;
+    final day = e.regularizeDate;
+    final regularize = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Outside punch hours'),
+        content: Text(e.message),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Close')),
+          if (day != null)
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Regularize')),
+        ],
+      ),
+    );
+    if (regularize == true && mounted) {
+      _go(AttendanceCalendarScreen(regularizeDate: day));
     }
   }
 
@@ -241,10 +277,16 @@ class _HomeDashboardState extends State<HomeDashboard>
       line = 'Punched in at ${(_att?['punch_in_time'] ?? '').toString().padRight(16).substring(11, 16)}';
     } else if (isOut) {
       line =
-      'Done for today · ${(_att?['working_hours'] ?? 0)} h';
+      'Done for today · ${(_att?['working_hours'] ?? 0)} h · out at ${hhmm(_att?['punch_out_time'])}';
     } else {
       line = 'Not punched in yet';
     }
+    // A rep who punched out early, then kept working, punches out again — the
+    // later stamp becomes the official one. Only offered while the window is
+    // still open; after that the day needs regularizing.
+    final canRepunch = isOut &&
+        !_attLoading &&
+        minuteOfDay(ServerClock.I.now()) <= kPunchOutUntilMinute;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -275,6 +317,12 @@ class _HomeDashboardState extends State<HomeDashboard>
               label: Text(isIn ? 'Punch Out' : 'Punch In'),
               style: FilledButton.styleFrom(
                   backgroundColor: isIn ? Colors.orange : const Color(0xFFF46A21)),
+            )
+          else if (canRepunch)
+            OutlinedButton.icon(
+              onPressed: _attBusy ? null : _punchOut,
+              icon: const Icon(Icons.update, size: 18),
+              label: const Text('Punch Out Again'),
             ),
         ]),
       ),

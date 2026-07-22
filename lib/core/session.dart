@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
+import 'package:manna_field_sales/core/server_clock.dart';
 
 class Session {
   static final Session I = Session._();
@@ -105,6 +106,8 @@ class Session {
         handler.next(options);
       },
       onResponse: (response, handler) async {
+        // Every response re-teaches the app what time the server thinks it is.
+        ServerClock.I.syncFromHeader(response.headers.value('date'));
         if (await _needsReauth(response)) {
           final replayed = await _reauthAndReplay(response.requestOptions);
           if (replayed != null) return handler.resolve(replayed);
