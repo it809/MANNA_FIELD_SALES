@@ -704,6 +704,66 @@ class Api {
     return cur; // a cycle in the tree — bail out rather than spin
   }
 
+  /// Adds a route (leaf Territory) the rep has typed but the tree does not have
+  /// yet, and returns the name the server gave it. Territory is master data, so
+  /// the server has the final word — a login without create rights gets a plain
+  /// permission error back rather than a silent no-op.
+  static Future<String> createRoute(String routeName) async {
+    final parent = await _newRouteParent();
+    final body = <String, dynamic>{
+      'territory_name': routeName.trim(),
+      'is_group': 0,
+      if (parent != null && parent.isNotEmpty) 'parent_territory': parent,
+    };
+    final r = await Session.I.dio.post(_res('Territory'), data: body);
+    if (r.statusCode == 200 || r.statusCode == 201) {
+      return r.data['data']['name'] as String;
+    }
+    throw Exception(_frappeError(r));
+  }
+
+  // Where a route the rep invents should hang. Alongside the routes they
+  // already work — so a new Kerala route lands in the Kerala branch and not at
+  // the top of the tree — falling back to their region and then to the root.
+  static Future<String?> _newRouteParent() async {
+    final tree = await _list('Territory',
+        fields: '["name","is_group","parent_territory"]', orderBy: 'name asc');
+    final parent = <String, String>{};
+    String? root;
+    for (final t in tree) {
+      final name = '${t['name'] ?? ''}';
+      if (name.isEmpty) continue;
+      final p = '${t['parent_territory'] ?? ''}';
+      if (p.isEmpty) {
+        root ??= name;
+      } else {
+        parent[name] = p;
+      }
+    }
+
+    final rep = Session.I.salesPerson;
+    if (rep == null || rep.isEmpty) return root;
+    final mine = await _repTerritories(rep);
+
+    // The group most of the rep's own routes hang off.
+    final tally = <String, int>{};
+    for (final t in mine) {
+      final p = parent[t];
+      if (p != null && p.isNotEmpty) tally[p] = (tally[p] ?? 0) + 1;
+    }
+    if (tally.isNotEmpty) {
+      return tally.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+    }
+
+    // Nothing of theirs is parented — a flat tree, or a book with no routes on
+    // it yet. One clear region still tells us where to put it.
+    final regions = mine
+        .map((t) => _regionOf(t, parent))
+        .where((r) => r.isNotEmpty)
+        .toSet();
+    return regions.length == 1 ? regions.first : root;
+  }
+
   // Every route the rep is already working, from both sides of their book.
   static Future<Set<String>> _repTerritories(String rep) async {
     Future<List<Map<String, dynamic>>> pull(String doctype, String filters) async {
