@@ -143,9 +143,14 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
     );
   }
 
-  void _open(Map<String, dynamic> c) => Navigator.of(context).push(
-      MaterialPageRoute(
-          builder: (_) => CustomerDetailScreen(customer: c, reps: _reps)));
+  /// Opens the full detail screen. It reports back whether the customer was
+  /// edited there — reloading is what moves an edited customer onto its new
+  /// route and rebuilds the route dropdown around it.
+  Future<void> _open(Map<String, dynamic> c) async {
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+        builder: (_) => CustomerDetailScreen(customer: c, reps: _reps)));
+    if (changed == true && mounted) await _load();
+  }
 
   Future<void> _call(String phone) async {
     final uri = Uri.parse('tel:${phone.replaceAll(RegExp(r'[^0-9+]'), '')}');

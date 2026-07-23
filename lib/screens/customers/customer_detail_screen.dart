@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/collections/collection_screen.dart';
 import 'package:manna_field_sales/screens/complaints/complaint_screen.dart';
+import 'package:manna_field_sales/screens/customers/edit_customer_screen.dart';
 import 'package:manna_field_sales/screens/orders/order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
@@ -27,12 +28,30 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   bool _busy = false;
   List<Map<String, dynamic>> _sites = [];
   bool _sitesLoading = true;
+  // Whether anything the list screen shows was edited here, so it knows to
+  // reload — its route dropdown is built from the customers it has loaded.
+  bool _changed = false;
 
   @override
   void initState() {
     super.initState();
     c = Map<String, dynamic>.from(widget.customer);
     _loadSites();
+  }
+
+  /// Edits the customer's particulars, then re-reads whatever hangs off the
+  /// customer id — a changed id means the sites were fetched under the old one.
+  Future<void> _edit() async {
+    final updated = await Navigator.of(context).push<Map<String, dynamic>>(
+        MaterialPageRoute(builder: (_) => EditCustomerScreen(customer: c)));
+    if (updated == null || !mounted) return;
+    final renamed = updated['name'] != c['name'];
+    setState(() {
+      c = updated;
+      _changed = true;
+      if (renamed) _sitesLoading = true;
+    });
+    if (renamed) _loadSites();
   }
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
@@ -375,8 +394,13 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(c['customer_name'] ?? c['name'])),
+    final screen = Scaffold(
+      appBar: AppBar(title: Text(c['customer_name'] ?? c['name']), actions: [
+        IconButton(
+            tooltip: 'Edit details',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: _busy ? null : _edit),
+      ]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child:
@@ -435,6 +459,17 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             ),
         ]),
       ),
+    );
+
+    // Report the edit outcome on the way out, however the rep leaves — app bar
+    // arrow, back gesture or hardware button.
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        Navigator.pop(context, _changed);
+      },
+      child: screen,
     );
   }
 }

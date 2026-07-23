@@ -778,6 +778,58 @@ class Api {
     throw Exception(_frappeError(r));
   }
 
+  /// Edits a customer's own particulars. Only the fields on the edit form go
+  /// up, so the rep assignment and everything the location flow owns are left
+  /// untouched. Group and route are mandatory links on the doctype — a blank
+  /// one is dropped rather than sent as '', which the server would reject;
+  /// the phone is always sent so clearing it actually clears it.
+  static Future<Map<String, dynamic>> updateCustomer({
+    required String name,
+    required String customerName,
+    String? group,
+    String? territory,
+    String? phone,
+  }) async {
+    final body = <String, dynamic>{
+      'customer_name': customerName.trim(),
+      'custom_phone': (phone ?? '').trim(),
+    };
+    void link(String key, String? v) {
+      final s = (v ?? '').trim();
+      if (s.isNotEmpty) body[key] = s;
+    }
+    link('customer_group', group);
+    link('territory', territory);
+    final r = await Session.I.dio
+        .put('${_res('Customer')}/${Uri.encodeComponent(name)}', data: body);
+    if (r.statusCode == 200 || r.statusCode == 201) {
+      final d = (r.data is Map) ? r.data['data'] : null;
+      return d is Map<String, dynamic> ? d : body;
+    }
+    throw Exception(_frappeError(r));
+  }
+
+  /// Changes a customer's ERP id. The id is the document key, not a field, so
+  /// this is a rename: the server rewrites it on every order, invoice,
+  /// collection and visit that links to it, and refuses outright if the login
+  /// has no rename right on Customer. Returns the id the document ended up
+  /// with — Frappe may adjust it.
+  static Future<String> renameCustomer(String oldName, String newName) async {
+    final target = newName.trim();
+    final r = await Session.I.dio
+        .post('/api/method/frappe.client.rename_doc', data: {
+      'doctype': 'Customer',
+      'old_name': oldName,
+      'new_name': target,
+      'merge': 0,
+    });
+    if (r.statusCode == 200 || r.statusCode == 201) {
+      final m = (r.data is Map) ? r.data['message'] : null;
+      return (m is String && m.isNotEmpty) ? m : target;
+    }
+    throw Exception(_frappeError(r));
+  }
+
   // Restrict a list to the logged-in person's own sales_person.
   // If somehow no rep is resolved, force an impossible match (show nothing)
   // rather than leaking everyone's data.
