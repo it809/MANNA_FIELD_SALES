@@ -30,7 +30,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
   @override
   void initState() {
     super.initState();
-    _terrFut = Api.getTerritories();
+    _terrFut = Api.getRoutes();
     final l = widget.lead;
     if (l != null) {
       String s(String k) => (l[k] ?? '').toString();

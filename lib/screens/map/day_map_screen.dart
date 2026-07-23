@@ -89,10 +89,17 @@ class _DayMapScreenState extends State<DayMapScreen> {
     if (_rep != null && _rep!.isNotEmpty) _load();
   }
 
+  // Scoped to whoever is being viewed, so a manager looking at a UAE rep is
+  // offered that rep's routes rather than their own region's.
   Future<void> _loadRoutes() async {
     try {
-      final r = await Api.getTerritories();
-      if (mounted) setState(() => _routes = r);
+      final r = await Api.getRoutes(forRep: _rep);
+      if (!mounted) return;
+      setState(() {
+        _routes = r;
+        // The previous rep's route may not exist in this one's region.
+        if (_route != _allRoutes && !r.contains(_route)) _route = _allRoutes;
+      });
     } catch (_) {
       // A missing route list shouldn't block the day's points.
     }
@@ -416,6 +423,16 @@ class _DayMapScreenState extends State<DayMapScreen> {
                 if (v == null) return;
                 setState(() => _rep = v);
                 _load();
+                // Routes are region-scoped, so the list changes with the rep.
+                final before = _route;
+                _loadRoutes().then((_) {
+                  // The pick fell outside the new rep's region — drop the
+                  // overlays that were drawn for it.
+                  if (mounted && _route != before) {
+                    _loadRoute();
+                    _loadLeads();
+                  }
+                });
               },
             ),
           ),

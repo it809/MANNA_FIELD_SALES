@@ -32,7 +32,7 @@ class _NewTripScreenState extends State<NewTripScreen> {
 
   Future<void> _loadRoutes() async {
     try {
-      final r = await Api.getTerritories();
+      final r = await Api.getRoutes();
       if (mounted) setState(() => _routes = r);
     } catch (_) {
       // A missing route list shouldn't stop the rep starting a trip.

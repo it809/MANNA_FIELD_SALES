@@ -636,12 +636,84 @@ class Api {
     return l.map((e) => e['name'] as String).toList();
   }
 
-  static Future<List<String>> getTerritories() async {
-    final l = await _list('Territory',
-        fields: '["name"]',
-        filters: '[["is_group","=",0]]',
-        orderBy: 'name asc');
-    return l.map((e) => e['name'] as String).toList();
+  // Routes (leaf Territories) a rep should actually be offered.
+  //
+  // Territory is a tree, and the UAE routes hang off a different top-level
+  // group than the Indian ones — so listing every leaf drops both regions into
+  // one dropdown. Anchor instead on the routes the rep's own customers and
+  // leads already sit on, walk each up to its top-level group, and keep only
+  // the leaves under those groups. A Kerala rep never sees a Dubai route, and
+  // routes in their own region that they have not worked yet still show up.
+  //
+  // Pass [forRep] to scope to someone else — the day map does this so a
+  // manager viewing a UAE rep gets that rep's routes, not their own.
+  static Future<List<String>> getRoutes({String? forRep}) async {
+    final tree = await _list('Territory',
+        fields: '["name","is_group","parent_territory"]', orderBy: 'name asc');
+    final parent = <String, String>{};
+    final leaves = <String>[];
+    for (final t in tree) {
+      final name = '${t['name'] ?? ''}';
+      if (name.isEmpty) continue;
+      final p = '${t['parent_territory'] ?? ''}';
+      if (p.isNotEmpty) parent[name] = p;
+      if ('${t['is_group'] ?? 0}' != '1') leaves.add(name);
+    }
+
+    final rep = forRep ?? Session.I.salesPerson;
+    if (rep == null || rep.isEmpty) return leaves;
+
+    // Nothing on the rep's book yet means no region to infer — show them
+    // everything rather than an empty dropdown.
+    final regions = (await _repTerritories(rep))
+        .map((t) => _regionOf(t, parent))
+        .where((r) => r.isNotEmpty)
+        .toSet();
+    if (regions.isEmpty) return leaves;
+
+    final scoped =
+        leaves.where((l) => regions.contains(_regionOf(l, parent))).toList();
+    return scoped.isEmpty ? leaves : scoped;
+  }
+
+  // The top-level group a territory sits under — 'UAE' or 'India', not the
+  // 'All Territories' root. Stopping one short of the root is what keeps the
+  // regions apart. A flat tree with no region groups degrades to the territory
+  // itself, which still scopes the dropdown to what the rep actually works.
+  static String _regionOf(String territory, Map<String, String> parent) {
+    var cur = territory;
+    final seen = <String>{};
+    while (seen.add(cur)) {
+      final p = parent[cur];
+      if (p == null || p.isEmpty) return cur; // cur is the root
+      final gp = parent[p];
+      if (gp == null || gp.isEmpty) return cur; // cur's parent is the root
+      cur = p;
+    }
+    return cur; // a cycle in the tree — bail out rather than spin
+  }
+
+  // Every route the rep is already working, from both sides of their book.
+  static Future<Set<String>> _repTerritories(String rep) async {
+    Future<List<Map<String, dynamic>>> pull(String doctype, String filters) async {
+      try {
+        return await _list(doctype,
+            fields: '["territory"]', filters: filters, orderBy: 'modified desc');
+      } catch (_) {
+        // One side failing shouldn't cost us the other side's routes.
+        return const [];
+      }
+    }
+
+    final res = await Future.wait([
+      pull('Customer', '[["custom_assigned_reps","like","%|$rep|%"]]'),
+      pull('Lead', '[["custom_sales_person","=","$rep"]]'),
+    ]);
+    return res
+        .expand((l) => l)
+        .map((e) => '${e['territory'] ?? ''}')
+        .where((t) => t.isNotEmpty)
+        .toSet();
   }
 
   // Every customer on one route (Territory), regardless of which rep they are
