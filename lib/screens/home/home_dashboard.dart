@@ -473,7 +473,7 @@ class _HomeDashboardState extends State<HomeDashboard>
                 : const MyOrdersScreen())),
         _Tile('Collections', Icons.payments,
                 () => _go(const MyCollectionsScreen())),
-        _Tile('Map', Icons.map, () => _go(const MapScreen())),
+        _Tile('Customer Map', Icons.map, () => _go(const MapScreen())),
         _Tile('Trips', Icons.directions_car, () => _go(const TripsScreen())),
         _Tile('Leave', Icons.beach_access, () => _go(const LeaveScreen())),
       ],
