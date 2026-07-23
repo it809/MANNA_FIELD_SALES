@@ -1029,9 +1029,12 @@ class Api {
     final filters = (rep == null || rep.isEmpty)
         ? null
         : '[["custom_sales_person","=","$rep"]]';
+    // The location fields ride along so the list and the detail screen both
+    // know where the lead's location sits — without them every lead reads as
+    // 'Not Captured' and its visit card stays locked.
     return _list('Lead',
         fields:
-        '["name","lead_name","company_name","mobile_no","email_id","custom_gstin","custom_address","custom_payment_terms","territory","status"]',
+        '["name","lead_name","company_name","mobile_no","email_id","custom_gstin","custom_address","custom_payment_terms","territory","status","custom_location_status","custom_latitude","custom_longitude"]',
         filters: filters,
         orderBy: 'creation desc');
   }
