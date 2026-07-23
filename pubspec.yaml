@@ -28,6 +28,25 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+# Launcher icon, generated with `dart run flutter_launcher_icons`.
+#
+# The full wordmark is twice as wide as it is tall and turns to mush at 48dp, so
+# the icon is the M cut out of it instead — white on Manna orange, which is
+# legible small and survives the round mask on newer launchers. The two sources
+# are built by scratch/make_m_icon.ps1: manna_icon.png is the flattened square
+# for the legacy and iOS icons, manna_icon_fg.png is the same M on transparent
+# for the adaptive foreground. The background below has to stay orange — the M
+# is white, and on a white background it would disappear.
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "Assets/icon/manna_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#F46A21"
+  adaptive_icon_foreground: "Assets/icon/manna_icon_fg.png"
 
 flutter:
   uses-material-design: true
