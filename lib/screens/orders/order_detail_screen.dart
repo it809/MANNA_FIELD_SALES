@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/pdf/proforma_pdf.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class OrderDetailScreen extends StatefulWidget {
   final String orderName;
@@ -34,6 +36,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       } catch (_) {}
     }
   }
+
+  void _reload() => setState(() => _init = _load());
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 4)));
@@ -78,7 +82,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       _snack('Release requested — your manager will approve.');
       setState(() {});
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -146,7 +150,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final pf = '${_order['custom_proforma_status'] ?? 'Ready'}';
           final po = '${_order['custom_po_status'] ?? 'No PO Yet'}';
           final items = (_order['items'] as List?) ?? [];

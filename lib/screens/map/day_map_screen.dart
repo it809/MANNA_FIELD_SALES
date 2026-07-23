@@ -8,6 +8,7 @@ import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/map_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class _MapPoint {
   final double lat;
@@ -39,7 +40,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
   String? _rep;
   List<Map<String, dynamic>> _reps = [];
   bool _loading = false;
-  String? _error;
+  Object? _error;
   List<_MapPoint> _points = [];
 
   // Route (Territory) overlay — pick one and its customers show on the map.
@@ -100,11 +101,22 @@ class _DayMapScreenState extends State<DayMapScreen> {
         }
         if (mounted) setState(() {});
       } catch (e) {
-        if (mounted) setState(() => _error = '$e');
+        if (mounted) setState(() => _error = e);
       }
     }
     _loadRoutes();
     if (_rep != null && _rep!.isNotEmpty) _load();
+  }
+
+  /// Everything the screen pulls, in one go. The refresh button and the retry
+  /// on a failed load both land here — after a dropped connection any of the
+  /// four could be the one that came back empty.
+  void _refreshAll() {
+    setState(() => _error = null);
+    _init();
+    _loadRoute();
+    _loadLeads();
+    _loadLayers(force: true);
   }
 
   // Scoped to whoever is being viewed, so a manager looking at a UAE rep is
@@ -153,7 +165,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       }
       if (mounted) setState(() => _routePoints = pts);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loadingRoute = false);
     }
@@ -192,7 +204,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       }
       if (mounted) setState(() => _leadPoints = pts);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loadingLeads = false);
     }
@@ -237,7 +249,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loadingLayers = false);
     }
@@ -352,7 +364,7 @@ class _DayMapScreenState extends State<DayMapScreen> {
       }
       if (mounted) setState(() => _points = pts);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -632,21 +644,14 @@ class _DayMapScreenState extends State<DayMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Day Map'), actions: [
-        IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              _load();
-              _loadRoute();
-              _loadLeads();
-              _loadLayers(force: true);
-            }),
+        IconButton(icon: const Icon(Icons.refresh), onPressed: _refreshAll),
       ]),
       body: Column(children: [
         _controls(),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            child: InlineError(error: _error, onRetry: _refreshAll),
           ),
         Expanded(
           child: _loading

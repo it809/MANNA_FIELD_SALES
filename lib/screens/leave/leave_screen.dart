@@ -6,6 +6,7 @@ import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/leave/apply_leave_screen.dart';
 import 'package:manna_field_sales/screens/map/day_map_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class LeaveScreen extends StatefulWidget {
   const LeaveScreen({super.key});
@@ -106,10 +107,7 @@ class _LeaveScreenState extends State<LeaveScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(
-                child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text('Error: ${snap.error}')));
+            return ErrorView(error: snap.error, onRetry: _reload);
           }
           final balance = snap.data![0] as Map<String, double>;
           final leaves = snap.data![1] as List<Map<String, dynamic>>;

@@ -6,6 +6,7 @@ import 'package:manna_field_sales/core/server_clock.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/leave/apply_leave_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 /// The day the app went live. Nobody was punching in before this, so days
 /// earlier than it are never marked absent.
@@ -416,8 +417,7 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }

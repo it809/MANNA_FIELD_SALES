@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/screens/retread/retread_order_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class RetreadOrdersScreen extends StatefulWidget {
   const RetreadOrdersScreen({super.key});
@@ -40,7 +41,9 @@ class _RetreadOrdersScreenState extends State<RetreadOrdersScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final tyres = snap.data ?? [];
           if (tyres.isEmpty) {
             return const Center(

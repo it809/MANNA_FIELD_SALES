@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/attendance_rules.dart';
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/server_clock.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/core/utils.dart';
@@ -32,6 +33,7 @@ import 'package:manna_field_sales/screens/trips/trips_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
 import 'package:manna_field_sales/services/trip_tracker.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class HomeDashboard extends StatefulWidget {
   const HomeDashboard({super.key});
@@ -107,7 +109,7 @@ class _HomeDashboardState extends State<HomeDashboard>
     } on AttendanceWindowError catch (e) {
       await _outsidePunchHours(e);
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _attBusy = false);
     }
@@ -133,7 +135,7 @@ class _HomeDashboardState extends State<HomeDashboard>
     } on AttendanceWindowError catch (e) {
       await _outsidePunchHours(e);
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _attBusy = false);
     }
@@ -337,6 +339,18 @@ class _HomeDashboardState extends State<HomeDashboard>
         Api.getMonthSales(Session.I.salesPerson ?? '__none__'),
       ]),
       builder: (context, snap) {
+        // The future is built inline, so a rebuild is the retry.
+        if (snap.hasError) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: InlineError(
+                  error: snap.error,
+                  label: 'Could not load your target',
+                  onRetry: () => setState(() {})),
+            ),
+          );
+        }
         if (!snap.hasData) {
           return const Card(
             child: Padding(

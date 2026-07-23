@@ -6,6 +6,7 @@ import 'package:manna_field_sales/screens/trips/trip_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
 import 'package:manna_field_sales/services/trip_tracker.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class NewTripScreen extends StatefulWidget {
   const NewTripScreen({super.key});
@@ -17,7 +18,7 @@ class _NewTripScreenState extends State<NewTripScreen> {
   DateTime _date = DateTime.now();
   final _purpose = TextEditingController();
   bool _busy = false;
-  String? _error;
+  Object? _error;
 
   // Route (Territory) the trip covers — same list the day map filters by.
   List<String> _routes = [];
@@ -72,7 +73,7 @@ class _NewTripScreenState extends State<NewTripScreen> {
             builder: (_) => TripDetailScreen(tripName: name)));
       }
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -137,10 +138,12 @@ class _NewTripScreenState extends State<NewTripScreen> {
             'Odometer readings and photos are captured per vehicle leg (in "Add / switch vehicle") after the trip starts.',
             style: TextStyle(fontSize: 12, color: Colors.black45)),
         const SizedBox(height: 20),
+        // No retry button here: the Start Trip button right below is the
+        // retry, and it is the one the rep already has their thumb on.
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            child: InlineError(error: _error),
           ),
         FilledButton(
           onPressed: _busy ? null : _save,

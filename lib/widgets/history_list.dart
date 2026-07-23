@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 
 class HistoryList extends StatefulWidget {
@@ -78,10 +79,7 @@ class _HistoryListState extends State<HistoryList> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(
-                    child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text('Error: ${snap.error}')));
+                return ErrorView(error: snap.error, onRetry: _reload);
               }
               final all = snap.data!;
               final rows = all.where(_match).toList();

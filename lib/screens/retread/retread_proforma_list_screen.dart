@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:manna_field_sales/screens/retread/new_retread_proforma_screen.dart';
 import 'package:manna_field_sales/screens/retread/retread_proforma_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class RetreadProformaListScreen extends StatefulWidget {
   const RetreadProformaListScreen({super.key});
@@ -45,7 +46,9 @@ class _RetreadProformaListScreenState extends State<RetreadProformaListScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final items = snap.data ?? [];
           if (items.isEmpty) {
             return const Center(

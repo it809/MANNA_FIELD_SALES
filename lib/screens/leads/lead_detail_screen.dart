@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/leads/add_lead_screen.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_detail_screen.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 import 'package:manna_field_sales/widgets/visit_punch_card.dart';
 
@@ -77,7 +79,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
       });
       _snack('Captured - sent for manager verification.');
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -209,7 +211,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(child: Text('Error: ${snap.error}'));
+                return ErrorView(error: snap.error, onRetry: _reload);
               }
               final rows = snap.data!;
               if (rows.isEmpty) {

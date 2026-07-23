@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 /// Edits a customer's own particulars — name, route, group, phone and the ERP
 /// customer id. Pops with the updated row so the caller can refresh in place,
@@ -30,10 +32,13 @@ class _EditCustomerScreenState extends State<EditCustomerScreen> {
 
   late final String _originalId;
 
+  Future<List<List<String>>> _loadOptions() =>
+      Future.wait([Api.getRoutes(), Api.getCustomerGroups()]);
+
   @override
   void initState() {
     super.initState();
-    _options = Future.wait([Api.getRoutes(), Api.getCustomerGroups()]);
+    _options = _loadOptions();
     final c = widget.customer;
     String s(String k) => (c[k] ?? '').toString();
     _originalId = s('name');
@@ -110,7 +115,7 @@ class _EditCustomerScreenState extends State<EditCustomerScreen> {
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) Navigator.pop(context, row);
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -206,8 +211,11 @@ class _EditCustomerScreenState extends State<EditCustomerScreen> {
             if (snap.hasError)
               Padding(
                 padding: const EdgeInsets.only(top: 14),
-                child: Text('Could not load routes/groups: ${snap.error}',
-                    style: const TextStyle(fontSize: 12, color: Colors.red)),
+                child: InlineError(
+                  error: snap.error,
+                  label: 'Could not load routes and groups',
+                  onRetry: () => setState(() => _options = _loadOptions()),
+                ),
               ),
             const SizedBox(height: 20),
             FilledButton(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/screens/expenses/add_expense_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class ExpenseListScreen extends StatefulWidget {
   const ExpenseListScreen({super.key});
@@ -63,7 +64,9 @@ class _ExpenseListScreenState extends State<ExpenseListScreen> {
                 if (snap.connectionState != ConnectionState.done) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+                if (snap.hasError) {
+                  return ErrorView(error: snap.error, onRetry: _reload);
+                }
                 final all = snap.data!;
                 final rows = all.where(_match).toList();
                 if (all.isEmpty) {

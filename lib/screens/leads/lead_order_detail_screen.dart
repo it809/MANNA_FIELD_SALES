@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:manna_field_sales/pdf/proforma_pdf.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 import 'package:manna_field_sales/widgets/info_box.dart';
 
 class LeadOrderDetailScreen extends StatefulWidget {
@@ -30,6 +31,8 @@ class _LeadOrderDetailScreenState extends State<LeadOrderDetailScreen> {
   Future<void> _load() async {
     _order = await Api.getLeadOrder(widget.orderName);
   }
+
+  void _reload() => setState(() => _init = _load());
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 4)));
@@ -105,7 +108,9 @@ class _LeadOrderDetailScreenState extends State<LeadOrderDetailScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final status = '${_order['status'] ?? ''}';
           final items = (_order['items'] as List?) ?? [];
           final total = items.fold<double>(

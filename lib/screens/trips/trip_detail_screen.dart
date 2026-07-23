@@ -11,6 +11,7 @@ import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
 import 'package:manna_field_sales/services/map_service.dart';
 import 'package:manna_field_sales/services/trip_tracker.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class TripDetailScreen extends StatefulWidget {
   final String tripName;
@@ -21,6 +22,7 @@ class TripDetailScreen extends StatefulWidget {
 
 class _TripDetailScreenState extends State<TripDetailScreen> {
   Map<String, dynamic>? _trip;
+  Object? _error;
   bool _loading = true;
   // Loaded once and shared by the visits list and the route map.
   List<Map<String, dynamic>> _visits = [];
@@ -39,10 +41,15 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       _trip = await Api.getTrip(widget.tripName);
-    } catch (_) {}
+    } catch (e) {
+      _error = e;
+    }
     try {
       _visits = await Api.getVisitsForTrip(widget.tripName);
     } catch (_) {}
@@ -150,8 +157,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -183,8 +189,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -215,8 +220,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -230,8 +234,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -844,8 +847,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -1310,8 +1312,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -1637,7 +1638,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _trip == null
-          ? const Center(child: Text('Could not load trip.'))
+          ? ErrorView(error: _error, onRetry: _load)
           : ListView(padding: const EdgeInsets.all(16), children: [
         Card(
           child: Padding(

@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/screens/orders/order_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class OrderScreen extends StatefulWidget {
   final Map<String, dynamic> customer;
@@ -42,6 +44,8 @@ class _OrderScreenState extends State<OrderScreen> {
     _items = results[0] as List<Map<String, dynamic>>;
     _company = results[1] as String;
   }
+
+  void _reload() => setState(() => _init = _load());
 
   double get _total {
     double t = 0;
@@ -93,7 +97,7 @@ class _OrderScreenState extends State<OrderScreen> {
                 builder: (_) => OrderDetailScreen(orderName: name)));
       }
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -126,7 +130,7 @@ class _OrderScreenState extends State<OrderScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(child: Text('Error: ${snap.error}'));
+                return ErrorView(error: snap.error, onRetry: _reload);
               }
               if (_items.isEmpty) {
                 return const Center(child: Text('No sellable items found.'));

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 
@@ -86,7 +87,7 @@ class _AddLeadScreenState extends State<AddLeadScreen> {
         if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

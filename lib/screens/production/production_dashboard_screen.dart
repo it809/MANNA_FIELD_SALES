@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/production/production_order_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class ProductionDashboardScreen extends StatefulWidget {
   const ProductionDashboardScreen({super.key});
@@ -63,10 +64,7 @@ class _ProductionDashboardScreenState extends State<ProductionDashboardScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(
-                    child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text('Error: ${snap.error}')));
+                return ErrorView(error: snap.error, onRetry: _reload);
               }
               final all = snap.data ?? [];
               final rows = all.where(_match).toList();

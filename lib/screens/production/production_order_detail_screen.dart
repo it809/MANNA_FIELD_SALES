@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class ProductionOrderDetailScreen extends StatefulWidget {
   final String orderName;
@@ -15,6 +16,7 @@ class ProductionOrderDetailScreen extends StatefulWidget {
 class _ProductionOrderDetailScreenState
     extends State<ProductionOrderDetailScreen> {
   Map<String, dynamic>? _order;
+  Object? _error;
   bool _loading = true;
   bool _saving = false;
   String _status = 'Not Started';
@@ -34,6 +36,10 @@ class _ProductionOrderDetailScreenState
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final o = await Api.getOrder(widget.orderName);
       _order = o;
@@ -42,7 +48,9 @@ class _ProductionOrderDetailScreenState
           : '${o['custom_production_status']}';
       final fd = '${o['custom_production_finish_date'] ?? ''}';
       if (fd.isNotEmpty && fd != 'null') _finish = DateTime.tryParse(fd);
-    } catch (_) {}
+    } catch (e) {
+      _error = e;
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -61,8 +69,7 @@ class _ProductionOrderDetailScreenState
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -75,6 +82,13 @@ class _ProductionOrderDetailScreenState
       return Scaffold(
         appBar: AppBar(title: Text(widget.orderName)),
         body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    // Without the order there is nothing to show and nothing to save against.
+    if (_order == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.orderName)),
+        body: ErrorView(error: _error, onRetry: _load),
       );
     }
     final o = _order ?? {};

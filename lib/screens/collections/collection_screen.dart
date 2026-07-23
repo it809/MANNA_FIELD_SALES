@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class CollectionScreen extends StatefulWidget {
   final Map<String, dynamic> customer;
@@ -37,6 +39,8 @@ class _CollectionScreenState extends State<CollectionScreen> {
         : (_modes.isNotEmpty ? _modes.first : null);
   }
 
+  void _reload() => setState(() => _init = _load());
+
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(m), duration: const Duration(seconds: 4)));
 
@@ -62,7 +66,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
       await Future.delayed(const Duration(milliseconds: 600));
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -80,7 +84,9 @@ class _CollectionScreenState extends State<CollectionScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           return Padding(
             padding: const EdgeInsets.all(20),
             child: ListView(children: [

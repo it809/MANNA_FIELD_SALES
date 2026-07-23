@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class _TargetRow {
   final String rep;
@@ -126,8 +127,7 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
       _reload();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -149,10 +149,7 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(
-                child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Text('Error: ${snap.error}')));
+            return ErrorView(error: snap.error, onRetry: _reload);
           }
           final rows = snap.data!;
           return ListView(

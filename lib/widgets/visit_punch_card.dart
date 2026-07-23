@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/app_bus.dart';
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
@@ -80,7 +81,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
       _snack('Punched in ✓');
       await _load();
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -102,7 +103,7 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
       _snack('Punched out ✓ — ${mins.toStringAsFixed(0)} min');
       await _load();
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

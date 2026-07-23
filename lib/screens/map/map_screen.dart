@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/map_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -15,7 +16,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   bool _loading = true;
-  String? _error;
+  Object? _error;
   List<Map<String, dynamic>> _customers = [];
 
   @override
@@ -36,7 +37,7 @@ class _MapScreenState extends State<MapScreen> {
               _num(c['custom_latitude']), _num(c['custom_longitude'])))
           .toList();
     } catch (e) {
-      _error = '$e';
+      _error = e;
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -139,17 +140,20 @@ class _MapScreenState extends State<MapScreen> {
       ]),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(children: [
-              if (_error != null)
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child:
-                      Text(_error!, style: const TextStyle(color: Colors.red)),
-                ),
-              Expanded(child: _map()),
-              _legend(),
-            ]),
+          // Nothing to draw and a failed load: the whole screen is the error.
+          // With pins still on the map the failure is a banner over them.
+          : (_error != null && _customers.isEmpty)
+              ? ErrorView(error: _error, onRetry: _load)
+              : Column(children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      child: InlineError(error: _error, onRetry: _load),
+                    ),
+                  Expanded(child: _map()),
+                  _legend(),
+                ]),
     );
   }
 }

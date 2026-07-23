@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/auth_store.dart';
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/home/home_dashboard.dart';
 import 'package:manna_field_sales/services/api.dart';
@@ -32,6 +33,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _stuck = false;
   // Stops the resume loop when the rep opts out of it.
   bool _abandon = false;
+  // Completed by the Retry button to end the current backoff early.
+  Completer<void>? _wake;
 
   void _showUrlField() => setState(() => _showUrl = !_showUrl);
 
@@ -74,6 +77,20 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     await _resume();
+  }
+
+  /// Sits between two resume attempts, and gives [_retryNow] a way to cut the
+  /// wait short — a rep who can see their bars come back should not have to
+  /// sit out the rest of the backoff.
+  Future<void> _waitOrWake(Duration d) async {
+    final w = _wake = Completer<void>();
+    await Future.any([Future<void>.delayed(d), w.future]);
+    _wake = null;
+  }
+
+  void _retryNow() {
+    final w = _wake;
+    if (w != null && !w.isCompleted) w.complete();
   }
 
   /// Escape hatch from [_resume] — the rep asking for the form is the one
@@ -132,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // rep a way out rather than trapping them on a spinner.
         _stuck = attempt >= 3;
       });
-      await Future<void>.delayed(_backoff(attempt));
+      await _waitOrWake(_backoff(attempt));
       if (!mounted) return;
     }
   }
@@ -180,6 +197,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   static String _readable(Object e) {
+    if (isOffline(e)) return '$kNoConnectionTitle. $kNoConnectionBody';
     if (e is DioException) {
       return 'Could not reach the server. Check your connection and try again.';
     }
@@ -221,11 +239,29 @@ class _LoginScreenState extends State<LoginScreen> {
                     strokeWidth: 2, color: Color(0xFFF46A21))),
             if (_waiting) ...[
               const SizedBox(height: 20),
-              const Text('Waiting for network…',
-                  style: TextStyle(fontSize: 13, color: Colors.black54)),
+              const Text(kNoConnectionTitle,
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87)),
+              const SizedBox(height: 4),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(kNoConnectionBody,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ),
               const SizedBox(height: 4),
               const Text('You are still signed in.',
                   style: TextStyle(fontSize: 12, color: Colors.black38)),
+              const SizedBox(height: 12),
+              // Retrying is automatic, but a rep who can see their bars come
+              // back should not have to wait out the rest of the backoff.
+              OutlinedButton.icon(
+                onPressed: _retryNow,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Retry'),
+              ),
             ],
             if (_stuck)
               TextButton(

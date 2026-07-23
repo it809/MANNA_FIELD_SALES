@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class RetreadProformaDetailScreen extends StatefulWidget {
   final String name;
@@ -21,6 +22,9 @@ class _RetreadProformaDetailScreenState
     super.initState();
     _future = Api.getRetreadProforma(widget.name);
   }
+
+  void _reload() =>
+      setState(() => _future = Api.getRetreadProforma(widget.name));
 
   Future<void> _supersede() async {
     final ok = await showDialog<bool>(
@@ -42,13 +46,10 @@ class _RetreadProformaDetailScreenState
     if (ok != true) return;
     try {
       await Api.supersedeProforma(widget.name);
-      if (mounted) {
-        setState(() => _future = Api.getRetreadProforma(widget.name));
-      }
+      if (mounted) _reload();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -63,7 +64,9 @@ class _RetreadProformaDetailScreenState
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final p = snap.data!;
           final rates = (p['rates'] as List?) ?? [];
           final superseded = '${p['status']}' == 'Superseded';

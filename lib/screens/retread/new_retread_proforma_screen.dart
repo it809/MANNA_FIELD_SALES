@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/services/api.dart';
 
 class _RateRow {
@@ -56,7 +57,7 @@ class _NewRetreadProformaScreenState extends State<NewRetreadProformaScreen> {
       await Future.delayed(const Duration(milliseconds: 400));
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

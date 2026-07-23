@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/screens/collections/collection_screen.dart';
 import 'package:manna_field_sales/screens/complaints/complaint_screen.dart';
@@ -97,7 +98,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       });
       _snack('Captured - sent for manager verification.');
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -164,7 +165,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       _snack('Site "$siteName" captured — sent for manager verification.');
       await _loadSites();
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

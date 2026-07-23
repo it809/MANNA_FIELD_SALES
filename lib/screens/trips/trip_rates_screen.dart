@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class TripRatesScreen extends StatefulWidget {
   const TripRatesScreen({super.key});
@@ -52,8 +53,7 @@ class _TripRatesScreenState extends State<TripRatesScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     } finally {
       if (mounted) setState(() => _saving = false);

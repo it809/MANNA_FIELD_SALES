@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class RetreadReadyTyresScreen extends StatefulWidget {
   const RetreadReadyTyresScreen({super.key});
@@ -75,8 +76,7 @@ class _RetreadReadyTyresScreenState extends State<RetreadReadyTyresScreen> {
       _reload();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     } finally {
       if (mounted) setState(() => _placing = false);
@@ -95,7 +95,9 @@ class _RetreadReadyTyresScreenState extends State<RetreadReadyTyresScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reload);
+          }
           final tyres = snap.data ?? [];
           if (tyres.isEmpty) {
             return const Center(

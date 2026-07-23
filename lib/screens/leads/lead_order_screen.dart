@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/screens/leads/lead_order_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class LeadOrderScreen extends StatefulWidget {
   final Map<String, dynamic> lead;
@@ -38,6 +40,8 @@ class _LeadOrderScreenState extends State<LeadOrderScreen> {
   Future<void> _load() async {
     _items = await Api.getItems();
   }
+
+  void _reload() => setState(() => _init = _load());
 
   double get _total {
     double t = 0;
@@ -84,7 +88,7 @@ class _LeadOrderScreenState extends State<LeadOrderScreen> {
                     orderName: name, lead: widget.lead)));
       }
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -117,7 +121,7 @@ class _LeadOrderScreenState extends State<LeadOrderScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(child: Text('Error: ${snap.error}'));
+                return ErrorView(error: snap.error, onRetry: _reload);
               }
               if (_items.isEmpty) {
                 return const Center(child: Text('No sellable items found.'));

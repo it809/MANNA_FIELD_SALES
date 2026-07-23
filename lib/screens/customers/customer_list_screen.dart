@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:manna_field_sales/screens/customers/customer_detail_screen.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/map_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class CustomerListScreen extends StatefulWidget {
   const CustomerListScreen({super.key});
@@ -23,7 +24,7 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
   // route that would come back empty.
   List<String> _routes = [];
   bool _loading = true;
-  String? _error;
+  Object? _error;
 
   String _q = '';
   String _route = _allRoutes;
@@ -61,7 +62,7 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = '$e';
+          _error = e;
           _loading = false;
         });
       }
@@ -316,11 +317,7 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
 
   Widget _list() {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
-          child: Padding(
-              padding: const EdgeInsets.all(20), child: Text('Error: $_error')));
-    }
+    if (_error != null) return ErrorView(error: _error, onRetry: _load);
     if (_all.isEmpty) return const Center(child: Text('No customers found.'));
     final customers = _all.where(_match).toList();
     if (customers.isEmpty) {

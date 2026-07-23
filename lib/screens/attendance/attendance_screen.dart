@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/net_error.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -24,6 +26,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _reps = Api.getSalesPersons();
   }
 
+  void _reloadReps() => setState(() => _reps = Api.getSalesPersons());
+
   void _snack(String m) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
@@ -37,7 +41,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       final list = await Api.getTodayAttendance(_rep!);
       setState(() => today = list.isNotEmpty ? list.first : null);
     } catch (e) {
-      _snack('Failed to load: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _loadingToday = false);
     }
@@ -53,7 +57,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       _snack('Punched in ✓');
       await _loadToday();
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -74,7 +78,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       _snack('Punched out ✓  ${hours.toStringAsFixed(2)} h');
       await _loadToday();
     } catch (e) {
-      _snack('Failed: $e');
+      _snack(errorLine(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -96,7 +100,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) return Center(child: Text('Error: ${snap.error}'));
+          if (snap.hasError) {
+            return ErrorView(error: snap.error, onRetry: _reloadReps);
+          }
           final reps = snap.data ?? [];
           return Padding(
             padding: const EdgeInsets.all(20),

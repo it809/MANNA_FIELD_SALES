@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/services/api.dart';
+import 'package:manna_field_sales/widgets/error_view.dart';
 
 class LeaveApprovalsScreen extends StatefulWidget {
   final bool forHR;
@@ -72,8 +73,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       _reload();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: $e')));
+        showErrorSnack(context, e);
       }
     }
   }
@@ -91,7 +91,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snap.hasError) {
-            return Center(child: Text('Error: ${snap.error}'));
+            return ErrorView(error: snap.error, onRetry: _reload);
           }
           final items = snap.data ?? [];
           if (items.isEmpty) {
