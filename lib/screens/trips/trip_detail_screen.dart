@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
@@ -27,7 +28,14 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   @override
   void initState() {
     super.initState();
+    AppBus.I.addListener(_reloadVisits);
     _load();
+  }
+
+  @override
+  void dispose() {
+    AppBus.I.removeListener(_reloadVisits);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -39,6 +47,17 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
       _visits = await Api.getVisitsForTrip(widget.tripName);
     } catch (_) {}
     if (mounted) setState(() => _loading = false);
+  }
+
+  // A visit edited or deleted elsewhere may be one of this trip's, so the list
+  // and the pins over the route are refetched. Only the visits: the trip has
+  // not moved, and a full reload would blank the screen to a spinner.
+  Future<void> _reloadVisits() async {
+    if (!mounted) return;
+    try {
+      final v = await Api.getVisitsForTrip(widget.tripName);
+      if (mounted) setState(() => _visits = v);
+    } catch (_) {}
   }
 
   double _num(dynamic v) => (v is num) ? v.toDouble() : 0.0;

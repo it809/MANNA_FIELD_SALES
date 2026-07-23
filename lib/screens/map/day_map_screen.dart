@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/map_service.dart';
@@ -70,7 +71,24 @@ class _DayMapScreenState extends State<DayMapScreen> {
   void initState() {
     super.initState();
     _rep = Session.I.salesPerson;
+    AppBus.I.addListener(_onWrite);
     _init();
+  }
+
+  @override
+  void dispose() {
+    AppBus.I.removeListener(_onWrite);
+    super.dispose();
+  }
+
+  // A visit edited or deleted elsewhere moves the pin it drew here, so redraw
+  // the day. The cached 30-day layers go stale with it: drop them so a chip
+  // switched on later refetches, and refetch now if one is already showing.
+  void _onWrite() {
+    if (!mounted) return;
+    _load();
+    setState(() => _layersLoaded = false);
+    _loadLayers();
   }
 
   Future<void> _init() async {

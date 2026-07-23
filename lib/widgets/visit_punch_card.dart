@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
@@ -32,7 +33,17 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   @override
   void initState() {
     super.initState();
+    // The open visit this card is driving can be closed, reopened or deleted
+    // from My Visits, which would otherwise leave the card offering a punch
+    // out for a visit that no longer exists.
+    AppBus.I.addListener(_load);
     _load();
+  }
+
+  @override
+  void dispose() {
+    AppBus.I.removeListener(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {

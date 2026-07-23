@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import 'package:manna_field_sales/core/app_bus.dart';
 import 'package:manna_field_sales/core/attendance_rules.dart';
 import 'package:manna_field_sales/core/auth_store.dart';
 import 'package:manna_field_sales/core/server_clock.dart';
@@ -378,6 +379,16 @@ class Api {
     final r =
     await Session.I.dio.put(_res(doctype) + '/$name', data: body);
     if (r.statusCode != 200 && r.statusCode != 201) {
+      throw Exception(_frappeError(r));
+    }
+  }
+
+  // Frappe answers a resource DELETE with 202 Accepted, not 200, and some
+  // proxies collapse it to 204 — all three mean the document is gone.
+  static Future<void> _delete(String doctype, String name) async {
+    final r = await Session.I.dio.delete(_res(doctype) + '/$name');
+    final c = r.statusCode;
+    if (c != 200 && c != 202 && c != 204) {
       throw Exception(_frappeError(r));
     }
   }
@@ -1220,6 +1231,78 @@ class Api {
       'visit_status': 'Completed',
     });
     return mins;
+  }
+
+  // ---- Editing a visit after the fact ----
+
+  /// The whole Sales Visit document. The lists only carry the handful of
+  /// fields they render, so an edit starts from a fresh full read rather than
+  /// from a half-populated list row.
+  static Future<Map<String, dynamic>> getVisit(String name) async {
+    final r = await Session.I.dio.get(_res('Sales Visit') + '/$name');
+    final d = (r.data is Map) ? r.data['data'] : null;
+    if (d is Map<String, dynamic>) return d;
+    throw Exception(_frappeError(r));
+  }
+
+  /// Only the rep who logged a visit may change or remove it. Visits that
+  /// reach someone because they are tagged on the trip are read-only — the
+  /// same rule trip detail applies to the trip itself.
+  static bool canEditVisit(Map<String, dynamic> v) {
+    final me = Session.I.salesPerson ?? '';
+    return me.isNotEmpty && '${v['sales_person'] ?? ''}' == me;
+  }
+
+  /// Minutes between two ' '-separated stamps, floored at zero. Returns 0 if
+  /// either stamp is missing or unparseable.
+  static double _visitMinutes(String? checkIn, String? checkOut) {
+    if (checkIn == null || checkIn.isEmpty) return 0;
+    if (checkOut == null || checkOut.isEmpty) return 0;
+    try {
+      final inT = DateTime.parse(checkIn.replaceFirst(' ', 'T'));
+      final outT = DateTime.parse(checkOut.replaceFirst(' ', 'T'));
+      final m = outT.difference(inT).inSeconds / 60.0;
+      return m < 0 ? 0 : m;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Corrects a visit the rep already logged: its purpose, and when they left.
+  /// Pass a null or empty [checkOutTime] to reopen a visit closed by mistake.
+  ///
+  /// Status and duration are always derived from the two stamps rather than
+  /// taken from the caller, so an edited visit can never read "Completed" with
+  /// no check-out on record — that combination is exactly what [getOpenVisit]
+  /// keys off, and a visit in it would strand the punch card.
+  ///
+  /// The check-in stamp and its GPS are never touched: they are the evidence
+  /// the visit happened at all.
+  static Future<void> updateVisit({
+    required String name,
+    required String purpose,
+    String? checkInTime,
+    String? checkOutTime,
+  }) async {
+    final closed = checkOutTime != null && checkOutTime.isNotEmpty;
+    final mins = _visitMinutes(checkInTime, checkOutTime);
+    await _put('Sales Visit', name, {
+      'visit_purpose': purpose,
+      'check_out_time': closed ? checkOutTime : null,
+      'custom_duration_minutes': double.parse(mins.toStringAsFixed(1)),
+      'visit_status': closed ? 'Completed' : 'Checked In',
+      // Reopening drops the coordinates the old punch-out recorded: they say
+      // where the rep was when they left, and they did not leave after all.
+      // Moving the time alone keeps them — that part still happened.
+      if (!closed) 'check_out_latitude': null,
+      if (!closed) 'check_out_longitude': null,
+    });
+    AppBus.I.bump();
+  }
+
+  static Future<void> deleteVisit(String name) async {
+    await _delete('Sales Visit', name);
+    AppBus.I.bump();
   }
 
   static Future<String> createSalesOrder({

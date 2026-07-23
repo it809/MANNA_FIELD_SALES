@@ -2,13 +2,24 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'package:manna_field_sales/core/app_bus.dart';
+
 
 class HistoryList extends StatefulWidget {
   final String title;
   final Future<List<Map<String, dynamic>>> Function() loader;
   final Widget Function(BuildContext, Map<String, dynamic>) tileBuilder;
+
+  /// Reload whenever anything in the app writes. Set on lists whose rows can
+  /// be changed from the row itself, so an edit or delete leaves the list it
+  /// was made from without waiting for a manual refresh.
+  final bool liveRefresh;
+
   const HistoryList(
-      {required this.title, required this.loader, required this.tileBuilder});
+      {required this.title,
+      required this.loader,
+      required this.tileBuilder,
+      this.liveRefresh = false});
   @override
   State<HistoryList> createState() => _HistoryListState();
 }
@@ -20,6 +31,18 @@ class _HistoryListState extends State<HistoryList> {
   void initState() {
     super.initState();
     _future = widget.loader();
+    if (widget.liveRefresh) AppBus.I.addListener(_reload);
+  }
+
+  @override
+  void dispose() {
+    if (widget.liveRefresh) AppBus.I.removeListener(_reload);
+    super.dispose();
+  }
+
+  void _reload() {
+    if (!mounted) return;
+    setState(() { _future = widget.loader(); });
   }
 
   bool _match(Map<String, dynamic> r) {
@@ -32,9 +55,7 @@ class _HistoryListState extends State<HistoryList> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title), actions: [
-        IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => setState(() { _future = widget.loader(); })),
+        IconButton(icon: const Icon(Icons.refresh), onPressed: _reload),
       ]),
       body: Column(children: [
         Padding(
