@@ -1,17 +1,25 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import 'package:manna_field_sales/core/session.dart';
 import 'package:manna_field_sales/services/api.dart';
 import 'package:manna_field_sales/services/location_service.dart';
-import 'package:manna_field_sales/widgets/photo_source_sheet.dart';
 
 class VisitPunchCard extends StatefulWidget {
   final String? customer;
   final String? lead;
-  const VisitPunchCard({super.key, this.customer, this.lead});
+
+  /// Whether the shop location has already been captured. A visit cannot start
+  /// until it has — the rep captures the location first, then punches in. Left
+  /// required so a new caller can't silently skip the gate.
+  final bool locationCaptured;
+
+  const VisitPunchCard(
+      {super.key,
+      this.customer,
+      this.lead,
+      required this.locationCaptured});
   @override
   State<VisitPunchCard> createState() => _VisitPunchCardState();
 }
@@ -20,14 +28,6 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
   Map<String, dynamic>? _open;
   bool _busy = false, _loading = true;
   String? _lastDuration;
-
-  /// Optional photo staged for the next punch. Never gates the punch itself —
-  /// this is visit evidence, not the customer's location capture.
-  String? _photoPath;
-
-  /// Leads already carry a location/banner photo of their own, so their punch
-  /// card is timer-only.
-  bool get _photoAllowed => widget.lead == null;
 
   @override
   void initState() {
@@ -50,27 +50,10 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
         SnackBar(content: Text(m), duration: const Duration(seconds: 3)));
   }
 
-  Future<void> _pickPhoto() async {
-    final img = await pickPhoto(context, title: 'Visit photo');
-    if (img == null) return;
-    if (mounted) setState(() => _photoPath = img.path);
-  }
-
-  /// Uploads the staged photo, if any. A failure here is reported but never
-  /// rolls back the punch — the visit is already recorded.
-  Future<void> _uploadStagedPhoto(String visitName, {required bool checkOut}) async {
-    final path = _photoPath;
-    if (path == null) return;
-    try {
-      await Api.uploadVisitPhoto(
-          visitName: visitName, filePath: path, checkOut: checkOut);
-      _photoPath = null;
-    } catch (_) {
-      _snack('Punch saved, but the photo failed to upload.');
-    }
-  }
-
   Future<void> _punchIn() async {
+    if (!widget.locationCaptured) {
+      return _snack('Capture the location first, then punch in.');
+    }
     if (Session.I.salesPerson == null) {
       return _snack('No rep linked to this login.');
     }
@@ -78,13 +61,12 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
     _snack('Getting GPS...');
     try {
       final pos = await getCurrentLocation();
-      final visit = await Api.punchInVisit(
+      await Api.punchInVisit(
           customer: widget.customer,
           lead: widget.lead,
           lat: pos.latitude,
           lng: pos.longitude);
       _snack('Punched in ✓');
-      await _uploadStagedPhoto(visit, checkOut: false);
       await _load();
     } catch (e) {
       _snack('Failed: $e');
@@ -107,7 +89,6 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
       );
       _lastDuration = mins.toStringAsFixed(0);
       _snack('Punched out ✓ — ${mins.toStringAsFixed(0)} min');
-      await _uploadStagedPhoto(_open!['name'] as String, checkOut: true);
       await _load();
     } catch (e) {
       _snack('Failed: $e');
@@ -156,26 +137,16 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
               ),
             ),
           ]),
-          if (!_loading && _photoAllowed) ...[
+          // Punching out is never gated — an already-open visit must always be
+          // closable, even if the location was never captured.
+          if (!_loading && !open && !widget.locationCaptured) ...[
             const SizedBox(height: 8),
-            Row(children: [
-              if (_photoPath != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Image.file(File(_photoPath!),
-                      width: 48, height: 48, fit: BoxFit.cover),
-                ),
-                const SizedBox(width: 8),
-              ],
+            Row(children: const [
+              Icon(Icons.info_outline, size: 18, color: Colors.black45),
+              SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _busy ? null : _pickPhoto,
-                  icon: Icon(_photoPath == null
-                      ? Icons.add_a_photo
-                      : Icons.check_circle),
-                  label: Text(
-                      _photoPath == null ? 'Add photo (optional)' : 'Photo ready'),
-                ),
+                child: Text('Capture the location first to start a visit.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54)),
               ),
             ]),
           ],
@@ -192,7 +163,9 @@ class _VisitPunchCardState extends State<VisitPunchCard> {
                   padding: EdgeInsets.all(8), child: Text('Punch out')),
             )
                 : FilledButton.icon(
-              onPressed: _busy || _loading ? null : _punchIn,
+              onPressed: _busy || _loading || !widget.locationCaptured
+                  ? null
+                  : _punchIn,
               icon: const Icon(Icons.login),
               label: const Padding(
                   padding: EdgeInsets.all(8),

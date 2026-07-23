@@ -41,6 +41,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   String get _status =>
       (c['custom_location_status'] ?? 'Not Captured').toString();
 
+  /// A visit can only start once the shop location is on record. Awaiting the
+  /// manager's verification is enough — the rep isn't blocked by that queue.
+  /// 'Rejected' does not count: that location has to be captured again.
+  bool get _locationCaptured =>
+      _status == 'Pending Verification' || _status == 'Verified';
+
   /// Captures the shop location once. This never logs a visit — punching in
   /// on the visit card is the only thing that creates a Sales Visit.
   Future<void> _capture() async {
@@ -389,7 +395,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           const SizedBox(height: 16),
           _locationSection(),
           const SizedBox(height: 16),
-          VisitPunchCard(customer: c['name'] as String),
+          VisitPunchCard(
+              customer: c['name'] as String,
+              locationCaptured: _locationCaptured),
           const SizedBox(height: 16),
           _sitesSection(),
           const SizedBox(height: 16),

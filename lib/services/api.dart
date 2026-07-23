@@ -1636,36 +1636,6 @@ class Api {
     }
   }
 
-  /// Attaches a visit photo to a Sales Visit — the check-in one by default, the
-  /// check-out one when [checkOut] is set. Tries the custom field first so the
-  /// image shows on the form; falls back to a plain attachment on sites that
-  /// don't have that field.
-  static Future<void> uploadVisitPhoto({
-    required String visitName,
-    required String filePath,
-    bool checkOut = false,
-  }) async {
-    final field =
-        checkOut ? 'custom_check_out_photo' : 'custom_check_in_photo';
-    final filename = checkOut ? 'visit_check_out.jpg' : 'visit_check_in.jpg';
-    try {
-      await uploadPhoto(
-        doctype: 'Sales Visit',
-        docname: visitName,
-        fieldname: field,
-        filePath: filePath,
-        filename: filename,
-      );
-    } catch (_) {
-      await uploadFileGetUrl(
-        filePath: filePath,
-        doctype: 'Sales Visit',
-        docname: visitName,
-        filename: filename,
-      );
-    }
-  }
-
   // -------- Attendance --------
   static Future<List<Map<String, dynamic>>> getTodayAttendance(
       String salesPerson) =>

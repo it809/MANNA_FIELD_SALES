@@ -41,6 +41,11 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
   bool get _submitted => _locStatus == 'Pending Verification';
   bool get _verified => _locStatus == 'Verified';
 
+  /// A visit can only start once the location is on record. Awaiting the
+  /// manager's verification is enough — the rep isn't blocked by that queue.
+  /// 'Rejected' does not count: that location has to be captured again.
+  bool get _locationCaptured => _submitted || _verified;
+
   /// One-time location capture for the lead. This never logs a visit —
   /// punching in on the visit card is the only thing that creates a visit.
   Future<void> _capture() async {
@@ -174,7 +179,9 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            VisitPunchCard(lead: l['name'] as String),
+            VisitPunchCard(
+                lead: l['name'] as String,
+                locationCaptured: _locationCaptured),
             const SizedBox(height: 12),
             SizedBox(
                 width: double.infinity,
