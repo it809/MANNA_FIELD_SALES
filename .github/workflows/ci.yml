@@ -1,0 +1,100 @@
+name: CI
+
+# Runs static analysis and the test suite on every push and pull request,
+# then (optionally) builds a debug APK you can download from the run's
+# "Artifacts" section.
+on:
+  push:
+  pull_request:
+
+# If you push again before a run finishes, cancel the older run on that ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    name: Analyze & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          # Pinned to the version this project builds with locally. Bump this
+          # (and re-run) whenever you upgrade Flutter on your machine.
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # The project currently has ~59 info-level lints and no errors/warnings.
+      # --no-fatal-infos lets those infos through while still failing the build
+      # on any new warning or error. Once the info backlog is cleaned up, drop
+      # the flag to enforce a zero-lint bar.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+  build-apk:
+    name: Build debug APK
+    # Only build if analysis and tests pass.
+    needs: analyze-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.6
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Debug build on purpose: CI has no signing keystore (key.properties is
+      # gitignored and never committed), so a --release build would produce an
+      # unsigned APK. A signed release build belongs in a separate workflow that
+      # injects the keystore from GitHub Secrets — see the note at the bottom.
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+# ---------------------------------------------------------------------------
+# Optional: signed RELEASE build
+# ---------------------------------------------------------------------------
+# To also produce an installable, signed release APK, add a separate workflow
+# (e.g. triggered on version tags) that recreates key.properties from secrets:
+#
+#   - name: Recreate signing config
+#     run: |
+#       echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload.jks
+#       cat > android/key.properties <<EOF
+#       storeFile=upload.jks
+#       storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+#       keyAlias=${{ secrets.KEY_ALIAS }}
+#       keyPassword=${{ secrets.KEY_PASSWORD }}
+#       EOF
+#   - run: flutter build apk --release
+#
+# Store KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD under
+# Settings > Secrets and variables > Actions. Never commit the keystore itself.

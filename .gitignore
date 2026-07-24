@@ -43,3 +43,23 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Kotlin incremental-build cache
+.kotlin/
+
+# ===== Secrets & signing — never commit these =====
+# Android app-signing keystore config and its passwords
+android/key.properties
+# Keystore / key files
+*.jks
+*.keystore
+*.p12
+*.pem
+# Firebase / Google service configs (contain project API keys)
+**/google-services.json
+**/GoogleService-Info.plist
+# dotenv / environment secret files (an .env.example template is allowed)
+.env
+.env.*
+*.env
+!.env.example

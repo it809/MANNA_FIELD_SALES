@@ -1,8 +1,8 @@
-gradle-wrapper.jar
+# The Gradle wrapper (gradlew, gradlew.bat, gradle/wrapper/gradle-wrapper.jar)
+# is committed on purpose: CI and fresh clones need it to build the Android app
+# without a pre-installed Gradle. Do not re-ignore these.
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
